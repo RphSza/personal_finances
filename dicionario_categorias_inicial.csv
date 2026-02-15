@@ -1,0 +1,81 @@
+grupo,categoria,natureza,recorrente_sugerido,origem
+RECEITA,Remuneracao FTE,receita,sim,abas Jan_2026-Fev_2026-Mar_2026
+RECEITA,Renda ALVORADA,receita,sim,abas Jan_2026-Fev_2026-Mar_2026
+RECEITA,Conclui,receita,nao,abas Jan_2026-Fev_2026-Mar_2026
+RECEITA,Ano Novo (Tiago),receita,nao,aba Jan_2026
+RECEITA,PLR Adriana,receita,nao,aba Mar_2026
+RECEITA,Resg. LCI,receita,nao,abas Jan_2026-Mar_2026
+CASA,Aluguel,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CASA,Cond,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CASA,Luz,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CASA,Faxina,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CASA,OI Fibra 500,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CASA,VIVO Controle,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CASA,Cond Alphaville 3,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+EDUCACAO_SAUDE,Plano de Saude,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+EDUCACAO_SAUDE,Escola JF,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+EDUCACAO_SAUDE,Material Didatico,despesa,nao,aba Jan_2026
+EDUCACAO_SAUDE,Material Didatico Bilingue,despesa,nao,aba Jan_2026
+EDUCACAO_SAUDE,Colonia Ferias,despesa,nao,aba Jan_2026
+CARTAO,Outros (refeicao/lazer/mercado),despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO,Netflix,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO,YouTube Premium,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO,Prime Video,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO,Mercado Livre (Star+ Disney+),despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO,HBO Max,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO,Paramount+,despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO,IA (OpenAI + Claude),despesa,sim,aba Fev_2026
+CARTAO,ChatGPT,despesa,sim,aba Jan_2026
+CARTAO,Google Microsoft Apps,despesa,sim,aba Jan_2026
+CARTAO,Clube Wine,despesa,sim,aba Jan_2026
+CARTAO,JusBrasil,despesa,sim,aba Jan_2026
+CARTAO,OneDrive,despesa,sim,abas Fev_2026-Mar_2026
+CARTAO,Globo Combo,despesa,sim,abas Fev_2026-Mar_2026
+CARTAO,Crunchyroll,despesa,sim,abas Fev_2026-Mar_2026
+CARTAO_GORDURA,Trabalho (uber),despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO_GORDURA,Seguro Haval,despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO_GORDURA,Campos do Jordao (carro),despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO_GORDURA,Notebook,despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+CARTAO_GORDURA,Maceio (Hotel),despesa,nao,abas Fev_2026-Mar_2026
+CARTAO_GORDURA,Bonito (Combustivel),despesa,nao,aba Mar_2026
+CARTAO_GORDURA,Bonito (Restaurantes),despesa,nao,aba Mar_2026
+CARTAO_GORDURA,Bonito (UDU Ceramica),despesa,nao,aba Mar_2026
+CARTAO_GORDURA,Bonito (Localiza),despesa,nao,aba Mar_2026
+CARTAO_GORDURA,Maceio (Diversos),despesa,nao,aba Mar_2026
+CARTAO_GORDURA,Farmacia,despesa,nao,aba Jan_2026
+CARTAO_GORDURA,Peixes,despesa,nao,aba Jan_2026
+CARTAO_GORDURA,Presente Rafa,despesa,nao,aba Jan_2026
+CARTAO_GORDURA,Grid Games,despesa,nao,aba Jan_2026
+CARTAO_GORDURA,Lampadas,despesa,nao,aba Jan_2026
+CARTAO_GORDURA,Colonia Ferias (Almocos),despesa,nao,aba Fev_2026
+CARTAO_GORDURA,Sul (Hotel Gramado),despesa,nao,aba Fev_2026
+CARTAO_GORDURA,Sul (Hotel Balneario Camboriu),despesa,nao,aba Fev_2026
+CARTAO_GORDURA,Kit Box JF,despesa,nao,aba Fev_2026
+CARTAO_GORDURA,Shopping,despesa,nao,abas Fev_2026-Jan_2026
+CARTAO_GORDURA,Material Escolar JF,despesa,nao,aba Fev_2026
+CARTAO_GORDURA,Uniforme JF,despesa,nao,aba Fev_2026
+CARTAO_GORDURA,Combustivel,despesa,nao,aba Fev_2026
+CARTAO_GORDURA,Fotos JF,despesa,nao,aba Fev_2026
+OUTROS,Mae (Auxilio),despesa,sim,abas Jan_2026-Fev_2026-Mar_2026
+OUTROS,1a Semana,despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+OUTROS,2a Semana,despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+OUTROS,3a Semana,despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+OUTROS,4a Semana,despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+OUTROS,5a Semana,despesa,nao,abas Jan_2026-Fev_2026-Mar_2026
+OUTROS,Conclui DAS SN,despesa,nao,abas Fev_2026-Mar_2026
+OUTROS,Conclui DARF INSS Adriana,despesa,nao,abas Fev_2026-Mar_2026
+OUTROS,Mae (Facul),despesa,sim,abas Fev_2026-Mar_2026
+OUTROS,Conclui (Adriana ficou),despesa,nao,abas Fev_2026-Mar_2026
+OUTROS,Cabana (parte 2/2),despesa,nao,aba Jan_2026
+OUTROS,Bonito (Amarelo Casa),despesa,nao,aba Fev_2026
+CARRO,Haval 20/24,despesa,sim,aba Jan_2026
+CARRO,Haval 21/24,despesa,sim,aba Fev_2026
+CARRO,Haval 22/24,despesa,sim,aba Mar_2026
+CARRO,Haval Licenciamento 2026,despesa,nao,aba Jan_2026
+CARRO,Multa,despesa,nao,aba Jan_2026
+CARRO,Movida (locacao DRS),despesa,nao,aba Jan_2026
+INVESTIMENTOS,LCI/CDB LD,investimento,sim,abas Jan_2026-Fev_2026-Mar_2026
+INVESTIMENTOS,Aplic. LCI xx/01/25 (Funcao),investimento,sim,abas Fev_2026-Mar_2026
+INVESTIMENTOS,Aplic. LCI xx/01/25,investimento,sim,abas Fev_2026-Mar_2026
+INVESTIMENTOS,Aplic. LCI 05/01/26,investimento,sim,aba Jan_2026
+INVESTIMENTOS,Acoes/Stocks,investimento,nao,abas Jan_2026-Fev_2026-Mar_2026
