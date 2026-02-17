@@ -1,45 +1,27 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import {
-  addMonths,
-  format,
-  isAfter,
-  lastDayOfMonth,
-  parseISO,
-  setDate
-} from "date-fns";
-import {
-  BadgeDollarSign,
-  CalendarDays,
-  CircleDollarSign,
-  Coins,
-  Plus,
-  RefreshCw,
-  Trash2
-} from "lucide-react";
+﻿import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { addMonths, format, isAfter, lastDayOfMonth, parseISO, setDate } from "date-fns";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
+import { KpiSummary } from "./features/dashboard/KpiSummary";
+import { Sidebar } from "./layout/Sidebar";
+import { MainHeader } from "./layout/MainHeader";
+import type { AppPage, EntryViewMode, SettingsView, TrendMode } from "./features/app/types";
 import type {
   CategoryGroupRow,
   CategoryRow,
+  EntryForm,
   EntryRow,
   EntryStatus,
   EntryType,
   MonthRow,
-  MonthlyTotals
+  MonthlyTotals,
+  MonthlyTotalsByStatus,
+  UserInviteRow,
+  UserProfileRow,
+  UserRole
 } from "./types";
 
-type EntryForm = {
-  description: string;
-  amount: string;
-  type: EntryType;
-  status: EntryStatus;
-  categoryId: string;
-  isRecurring: boolean;
-  plannedDate: string;
-  realizedAt: string;
-  notes: string;
-};
-
-const initialEntryForm: EntryForm = {
+const defaultEntryForm: EntryForm = {
   description: "",
   amount: "",
   type: "despesa",
@@ -51,34 +33,55 @@ const initialEntryForm: EntryForm = {
   notes: ""
 };
 
-function monthStartIso(date: Date) {
-  return format(date, "yyyy-MM-01");
-}
-
-function formatBRL(value: number) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL"
-  }).format(value);
-}
-
-function slugify(input: string) {
-  return input
+const monthStartIso = (date: Date) => format(date, "yyyy-MM-01");
+const formatBRL = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+const slugify = (input: string) =>
+  input
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
-}
-
+const parseMoney = (raw: string) => Number(raw.replace(/\./g, "").replace(",", "."));
+const AuthScreen = lazy(() =>
+  import("./features/auth/AuthScreen").then((module) => ({ default: module.AuthScreen }))
+);
+const DashboardPage = lazy(() =>
+  import("./features/dashboard/DashboardPage").then((module) => ({ default: module.DashboardPage }))
+);
+const EntriesPage = lazy(() =>
+  import("./features/entries/EntriesPage").then((module) => ({ default: module.EntriesPage }))
+);
+const SettingsPage = lazy(() =>
+  import("./features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage }))
+);
 function App() {
+  const [sessionReady, setSessionReady] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentEmail, setCurrentEmail] = useState<string | null>(null);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(null);
+  const [role, setRole] = useState<UserRole | null>(null);
+
+  const [entryViewMode, setEntryViewMode] = useState<EntryViewMode>("list");
   const [selectedMonth, setSelectedMonth] = useState(monthStartIso(new Date()));
+
   const [monthRow, setMonthRow] = useState<MonthRow | null>(null);
   const [groups, setGroups] = useState<CategoryGroupRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [totals, setTotals] = useState<MonthlyTotals | null>(null);
-  const [entryForm, setEntryForm] = useState<EntryForm>(initialEntryForm);
+  const [users, setUsers] = useState<UserProfileRow[]>([]);
+  const [invites, setInvites] = useState<UserInviteRow[]>([]);
+  const [trendRows, setTrendRows] = useState<MonthlyTotals[]>([]);
+  const [trendStatusRows, setTrendStatusRows] = useState<MonthlyTotalsByStatus[]>([]);
+  const [trendWindow, setTrendWindow] = useState<6 | 12 | 24>(12);
+  const [trendMode, setTrendMode] = useState<TrendMode>("rxd");
+
+  const [entryForm, setEntryForm] = useState<EntryForm>(defaultEntryForm);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"todos" | EntryStatus>("todos");
+
   const [groupName, setGroupName] = useState("");
   const [groupCode, setGroupCode] = useState("");
   const [categoryName, setCategoryName] = useState("");
@@ -86,9 +89,57 @@ function App() {
   const [categoryGroupId, setCategoryGroupId] = useState("");
   const [categoryType, setCategoryType] = useState<EntryType>("despesa");
   const [categoryRecurring, setCategoryRecurring] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<"todos" | EntryStatus>("todos");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<UserRole>("viewer");
+
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const navigate = useNavigate();
+
+  const page: AppPage = pathname.startsWith("/entries")
+    ? "entries"
+    : pathname.startsWith("/settings")
+      ? "settings"
+      : "dashboard";
+  const settingsView: SettingsView =
+    pathname === "/settings/groups"
+      ? "groups"
+      : pathname === "/settings/categories"
+        ? "categories"
+        : pathname === "/settings/users"
+          ? "users"
+          : "hub";
+
+  const isAdmin = role === "admin" || role === "owner";
+  const showFinancialChrome = page !== "settings";
+  const pageTitle =
+    page === "dashboard"
+      ? "Dashboard"
+      : page === "entries"
+        ? "Lançamentos"
+        : settingsView === "hub"
+          ? "Configurações"
+          : settingsView === "groups"
+            ? "Configurações - Grupos"
+            : settingsView === "categories"
+              ? "Configurações - Categorias"
+              : "Configurações - Usuários";
+
+  const visibleEntries = useMemo(
+    () => (statusFilter === "todos" ? entries : entries.filter((entry) => entry.status === statusFilter)),
+    [entries, statusFilter]
+  );
+
+  const categoryById = useMemo(
+    () => categories.reduce<Record<string, CategoryRow>>((acc, cat) => ((acc[cat.id] = cat), acc), {}),
+    [categories]
+  );
+  const groupById = useMemo(
+    () => groups.reduce<Record<string, CategoryGroupRow>>((acc, g) => ((acc[g.id] = g), acc), {}),
+    [groups]
+  );
 
   const computedTotals = useMemo<MonthlyTotals>(() => {
     if (totals) return totals;
@@ -98,11 +149,11 @@ function App() {
     const despesaTotal = entries
       .filter((e) => e.status !== "cancelado" && e.type === "despesa")
       .reduce((sum, e) => sum + Number(e.amount), 0);
-    const despesaRecorrente = entries
-      .filter((e) => e.status !== "cancelado" && e.type === "despesa" && e.is_recurring)
-      .reduce((sum, e) => sum + Number(e.amount), 0);
     const investimentoTotal = entries
       .filter((e) => e.status !== "cancelado" && e.type === "investimento")
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+    const despesaRecorrente = entries
+      .filter((e) => e.status !== "cancelado" && e.type === "despesa" && e.is_recurring)
       .reduce((sum, e) => sum + Number(e.amount), 0);
     return {
       month_id: monthRow?.id ?? "",
@@ -115,610 +166,708 @@ function App() {
     };
   }, [entries, monthRow?.id, selectedMonth, totals]);
 
-  const visibleEntries = useMemo(() => {
-    if (statusFilter === "todos") return entries;
-    return entries.filter((item) => item.status === statusFilter);
-  }, [entries, statusFilter]);
+  const boardRows = useMemo(() => {
+    const byGroup: Record<string, EntryRow[]> = {};
+    for (const entry of visibleEntries) {
+      const groupId = categoryById[entry.category_id]?.group_id ?? "unassigned";
+      (byGroup[groupId] ??= []).push(entry);
+    }
+    return Object.entries(byGroup).map(([groupId, rows]) => ({
+      groupId,
+      groupName: groupById[groupId]?.name ?? "Sem grupo",
+      total: rows.reduce((sum, row) => sum + Number(row.amount), 0),
+      rows
+    }));
+  }, [categoryById, groupById, visibleEntries]);
 
-  const groupById = useMemo(
-    () =>
-      groups.reduce<Record<string, CategoryGroupRow>>((acc, group) => {
-        acc[group.id] = group;
-        return acc;
-      }, {}),
-    [groups]
+  const topExpenseCategories = useMemo(() => {
+    const map = new Map<string, number>();
+    entries
+      .filter((entry) => entry.type === "despesa" && entry.status !== "cancelado")
+      .forEach((entry) => {
+        map.set(entry.category_id, (map.get(entry.category_id) ?? 0) + Number(entry.amount));
+      });
+    const rows = [...map.entries()]
+      .map(([categoryId, total]) => ({
+        categoryId,
+        name: categoryById[categoryId]?.name ?? "Sem categoria",
+        total
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
+    const max = Math.max(...rows.map((row) => row.total), 1);
+    return { rows, max };
+  }, [entries, categoryById]);
+
+  const monthStrip = useMemo(() => {
+    const base = parseISO(selectedMonth);
+    return Array.from({ length: 13 }, (_, i) => {
+      const date = addMonths(base, i - 6);
+      return { value: monthStartIso(date), label: format(date, "MMM/yy") };
+    });
+  }, [selectedMonth]);
+
+  const trendMaxValue = useMemo(
+    () => Math.max(...trendRows.flatMap((item) => [item.receita_total, item.despesa_total]), 1),
+    [trendRows]
+  );
+  const trendResultMaxAbs = useMemo(
+    () => Math.max(...trendRows.map((item) => Math.abs(item.resultado_mes)), 1),
+    [trendRows]
+  );
+
+  const monthlyStatusTrend = useMemo(() => {
+    const monthMap = new Map<
+      string,
+      { previsto: number; realizado: number; monthLabel: string }
+    >();
+
+    for (const row of trendRows) {
+      monthMap.set(row.month_start, {
+        previsto: 0,
+        realizado: 0,
+        monthLabel: format(parseISO(row.month_start), "MMM/yy")
+      });
+    }
+
+    for (const row of trendStatusRows) {
+      const month = monthMap.get(row.month_start);
+      if (!month || !row.status) continue;
+      const resultado = Number(row.receita_total) - Number(row.despesa_total) - Number(row.investimento_total);
+      if (row.status === "previsto") month.previsto += resultado;
+      if (row.status === "realizado") month.realizado += resultado;
+    }
+
+    const rows = [...monthMap.entries()].map(([monthStart, values]) => ({
+      monthStart,
+      ...values
+    }));
+    const maxAbs = Math.max(...rows.map((row) => Math.max(Math.abs(row.previsto), Math.abs(row.realizado))), 1);
+    return { rows, maxAbs };
+  }, [trendRows, trendStatusRows]);
+
+  const ensureProfile = useCallback(async (id: string, email: string | null) => {
+    if (!supabase) return;
+    const { data, error } = await supabase.from("user_profiles").select("id").eq("id", id).maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      const { error: createError } = await supabase
+        .from("user_profiles")
+        .insert({ id, email, role: "viewer", active: true });
+      if (createError) throw createError;
+    }
+  }, []);
+
+  const ensureWorkspaceContext = useCallback(
+    async (id: string, email: string | null) => {
+      if (!supabase) return;
+
+      if (email) {
+        const { data: pendingInvites, error: inviteError } = await supabase
+          .from("user_invites")
+          .select("id, workspace_id, role")
+          .is("accepted_at", null)
+          .ilike("email", email);
+        if (inviteError) throw inviteError;
+
+        if (pendingInvites && pendingInvites.length > 0) {
+          const memberships = pendingInvites.map((invite) => ({
+            workspace_id: invite.workspace_id,
+            user_id: id,
+            role: invite.role,
+            active: true
+          }));
+          const { error: membershipError } = await supabase
+            .from("workspace_members")
+            .upsert(memberships, { onConflict: "workspace_id,user_id" });
+          if (membershipError) throw membershipError;
+
+          const inviteIds = pendingInvites.map((invite) => invite.id);
+          const { error: acceptError } = await supabase
+            .from("user_invites")
+            .update({ accepted_at: new Date().toISOString() })
+            .in("id", inviteIds);
+          if (acceptError) throw acceptError;
+        }
+      }
+
+      const { data: memberships, error } = await supabase
+        .from("workspace_members")
+        .select("workspace_id, role, active")
+        .eq("user_id", id)
+        .eq("active", true)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      if (memberships && memberships.length > 0) {
+        setCurrentWorkspaceId(memberships[0].workspace_id as string);
+        setRole(memberships[0].role as UserRole);
+        return;
+      }
+
+      const { data: workspace, error: wsError } = await supabase
+        .from("workspaces")
+        .insert({ name: "Workspace Principal", status: "active", created_by: id })
+        .select("id")
+        .single();
+      if (wsError) throw wsError;
+
+      const { error: memberError } = await supabase.from("workspace_members").insert({
+        workspace_id: workspace.id,
+        user_id: id,
+        role: "owner",
+        active: true
+      });
+      if (memberError) throw memberError;
+
+      setCurrentWorkspaceId(workspace.id as string);
+      setRole("owner");
+    },
+    []
   );
 
   const ensureMonth = useCallback(async (monthIso: string) => {
-    const { data: existing, error: existingError } = await supabase!
+    if (!currentWorkspaceId) throw new Error("Workspace não selecionado.");
+    const { data, error } = await supabase!
       .from("months")
       .select("id, month_start")
+      .eq("workspace_id", currentWorkspaceId)
       .eq("month_start", monthIso)
       .maybeSingle();
-    if (existingError) throw existingError;
-    if (existing) return existing as MonthRow;
-
+    if (error) throw error;
+    if (data) return data as MonthRow;
     const { data: inserted, error: insertError } = await supabase!
       .from("months")
-      .insert({ month_start: monthIso })
+      .insert({ workspace_id: currentWorkspaceId, month_start: monthIso })
       .select("id, month_start")
       .single();
     if (insertError) throw insertError;
     return inserted as MonthRow;
-  }, []);
+  }, [currentWorkspaceId]);
+
+  const syncRecurringRules = useCallback(
+    async (month: MonthRow) => {
+      if (!supabase || !isAdmin || !currentWorkspaceId) return;
+      const { data: rules, error } = await supabase
+        .from("recurrence_rules")
+        .select("category_id, description, amount, type, day_of_month, start_month, end_month")
+        .eq("workspace_id", currentWorkspaceId)
+        .eq("active", true);
+      if (error) throw error;
+
+      const monthDate = parseISO(month.month_start);
+      const valid = (rules ?? []).filter((rule) => {
+        if (isAfter(parseISO(rule.start_month), monthDate)) return false;
+        return !rule.end_month || !isAfter(monthDate, parseISO(rule.end_month));
+      });
+      if (!valid.length) return;
+
+      const { data: existing, error: existingError } = await supabase
+        .from("entries")
+        .select("category_id, description")
+        .eq("workspace_id", currentWorkspaceId)
+        .eq("month_id", month.id);
+      if (existingError) throw existingError;
+      const existingKey = new Set((existing ?? []).map((e) => `${e.category_id}::${e.description}`));
+
+      const inserts = valid
+        .filter((r) => !existingKey.has(`${r.category_id}::${r.description}`))
+        .map((rule) => ({
+          workspace_id: currentWorkspaceId,
+          month_id: month.id,
+          category_id: rule.category_id,
+          description: rule.description,
+          amount: Number(rule.amount),
+          type: rule.type,
+          status: "previsto",
+          is_recurring: true,
+          planned_date: format(setDate(monthDate, Math.min(rule.day_of_month, lastDayOfMonth(monthDate).getDate())), "yyyy-MM-dd")
+        }));
+      if (inserts.length) {
+        const { error: insertError } = await supabase.from("entries").insert(inserts);
+        if (insertError) throw insertError;
+      }
+    },
+    [currentWorkspaceId, isAdmin]
+  );
 
   const loadData = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || !currentUserId || !role || !currentWorkspaceId) return;
     setLoading(true);
     setMessage("");
     try {
       const month = await ensureMonth(selectedMonth);
       setMonthRow(month);
+      await syncRecurringRules(month);
 
-      const [groupsRes, categoriesRes, entriesRes, totalsRes] = await Promise.all([
+      const trendStart = monthStartIso(addMonths(parseISO(selectedMonth), -(trendWindow - 1)));
+      const [groupsRes, categoriesRes, entriesRes, totalsRes, trendRes, trendStatusRes] = await Promise.all([
         supabase
           .from("category_groups")
           .select("id, code, name, sort_order")
-          .order("sort_order", { ascending: true })
-          .order("name", { ascending: true }),
+          .eq("workspace_id", currentWorkspaceId)
+          .order("sort_order")
+          .order("name"),
         supabase
           .from("categories")
-          .select("id, group_id, code, name, default_type, default_is_recurring")
-          .order("sort_order", { ascending: true })
-          .order("name", { ascending: true }),
+          .select("id, group_id, code, name, default_type, default_is_recurring, active")
+          .eq("workspace_id", currentWorkspaceId)
+          .order("sort_order")
+          .order("name"),
         supabase
           .from("entries")
-          .select(
-            "id, month_id, category_id, description, amount, type, status, is_recurring, planned_date, realized_at, notes, created_at, categories(name, group_id)"
-          )
+          .select("id, month_id, category_id, description, amount, type, status, is_recurring, planned_date, realized_at, notes, created_at")
+          .eq("workspace_id", currentWorkspaceId)
           .eq("month_id", month.id)
-          .order("created_at", { ascending: true }),
+          .order("created_at"),
         supabase
           .from("v_monthly_totals")
-          .select(
-            "month_id, month_start, receita_total, despesa_total, despesa_recorrente, investimento_total, resultado_mes"
-          )
+          .select("workspace_id, month_id, month_start, receita_total, despesa_total, despesa_recorrente, investimento_total, resultado_mes")
+          .eq("workspace_id", currentWorkspaceId)
           .eq("month_start", selectedMonth)
-          .maybeSingle()
+          .maybeSingle(),
+        supabase
+          .from("v_monthly_totals")
+          .select("workspace_id, month_id, month_start, receita_total, despesa_total, despesa_recorrente, investimento_total, resultado_mes")
+          .eq("workspace_id", currentWorkspaceId)
+          .gte("month_start", trendStart)
+          .lte("month_start", selectedMonth)
+          .order("month_start", { ascending: true }),
+        supabase
+          .from("v_monthly_totals_by_status")
+          .select("workspace_id, month_id, month_start, status, receita_total, despesa_total, investimento_total")
+          .eq("workspace_id", currentWorkspaceId)
+          .gte("month_start", trendStart)
+          .lte("month_start", selectedMonth)
+          .order("month_start", { ascending: true })
       ]);
-
       if (groupsRes.error) throw groupsRes.error;
       if (categoriesRes.error) throw categoriesRes.error;
       if (entriesRes.error) throw entriesRes.error;
       if (totalsRes.error) throw totalsRes.error;
+      if (trendRes.error) throw trendRes.error;
+      if (trendStatusRes.error) throw trendStatusRes.error;
 
-      const parsedEntries = (entriesRes.data ?? []).map((item) => ({
-        ...item,
-        amount: Number(item.amount),
-        category: Array.isArray(item.categories) ? item.categories[0] : item.categories
-      })) as EntryRow[];
-
-      setGroups(groupsRes.data as CategoryGroupRow[]);
-      setCategories(categoriesRes.data as CategoryRow[]);
-      setEntries(parsedEntries);
+      setGroups((groupsRes.data as CategoryGroupRow[]) ?? []);
+      setCategories((categoriesRes.data as CategoryRow[]) ?? []);
+      setEntries(((entriesRes.data as EntryRow[]) ?? []).map((e) => ({ ...e, amount: Number(e.amount) })));
       setTotals((totalsRes.data as MonthlyTotals | null) ?? null);
+      setTrendRows(
+        ((trendRes.data as MonthlyTotals[]) ?? []).map((row) => ({
+          ...row,
+          receita_total: Number(row.receita_total),
+          despesa_total: Number(row.despesa_total),
+          despesa_recorrente: Number(row.despesa_recorrente),
+          investimento_total: Number(row.investimento_total),
+          resultado_mes: Number(row.resultado_mes)
+        }))
+      );
+      setTrendStatusRows(
+        ((trendStatusRes.data as MonthlyTotalsByStatus[]) ?? []).map((row) => ({
+          ...row,
+          receita_total: Number(row.receita_total),
+          despesa_total: Number(row.despesa_total),
+          investimento_total: Number(row.investimento_total)
+        }))
+      );
+
+      if (isAdmin) {
+        const [usersRes, invitesRes] = await Promise.all([
+          supabase
+            .from("workspace_members")
+            .select("workspace_id, user_id, role, active, created_at, user_profiles(email)")
+            .eq("workspace_id", currentWorkspaceId)
+            .order("created_at"),
+          supabase
+            .from("user_invites")
+            .select("id, email, role, created_at, accepted_at")
+            .eq("workspace_id", currentWorkspaceId)
+            .order("created_at", { ascending: false })
+        ]);
+        if (usersRes.error) throw usersRes.error;
+        if (invitesRes.error) throw invitesRes.error;
+        setUsers(
+          ((usersRes.data as Array<{ user_id: string; role: UserRole; active: boolean; created_at: string; user_profiles: Array<{ email: string | null }> | null }>) ?? []).map((row) => ({
+            id: row.user_id,
+            email: row.user_profiles?.[0]?.email ?? null,
+            role: row.role,
+            active: row.active,
+            created_at: row.created_at
+          }))
+        );
+        setInvites((invitesRes.data as UserInviteRow[]) ?? []);
+      } else {
+        setUsers([]);
+        setInvites([]);
+      }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Falha ao carregar dados.";
-      setMessage(msg);
+      setMessage(error instanceof Error ? error.message : "Falha ao carregar dados.");
     } finally {
       setLoading(false);
     }
-  }, [ensureMonth, selectedMonth]);
+  }, [currentUserId, currentWorkspaceId, ensureMonth, isAdmin, role, selectedMonth, syncRecurringRules, trendWindow]);
 
-  const handleCreateGroup = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!supabase) return;
-    const name = groupName.trim();
-    const code = (groupCode.trim() || slugify(name)).toUpperCase();
-    if (!name) return;
-    setMessage("");
-    const { error } = await supabase
-      .from("category_groups")
-      .insert({ name, code, sort_order: groups.length + 1 });
-    if (error) {
-      setMessage(error.message);
-      return;
+  const saveRecurrenceRule = async (input: { categoryId: string; description: string; amount: number; type: EntryType; baseDate: string }) => {
+    if (!supabase || !isAdmin || !currentWorkspaceId) return;
+    const { data, error } = await supabase
+      .from("recurrence_rules")
+      .select("id")
+      .eq("workspace_id", currentWorkspaceId)
+      .eq("category_id", input.categoryId)
+      .eq("description", input.description)
+      .eq("active", true)
+      .maybeSingle();
+    if (error) throw error;
+    const day = parseISO(input.baseDate).getDate();
+    if (data?.id) {
+      const { error: updateError } = await supabase.from("recurrence_rules").update({ amount: input.amount, type: input.type, day_of_month: day }).eq("id", data.id);
+      if (updateError) throw updateError;
+    } else {
+      const { error: insertError } = await supabase.from("recurrence_rules").insert({ workspace_id: currentWorkspaceId, category_id: input.categoryId, description: input.description, amount: input.amount, type: input.type, day_of_month: day, freq: "mensal", start_month: selectedMonth, active: true });
+      if (insertError) throw insertError;
     }
-    setGroupName("");
-    setGroupCode("");
-    await loadData();
   };
 
-  const handleCreateCategory = async (event: FormEvent) => {
+  const submitEntry = async (event: FormEvent) => {
     event.preventDefault();
-    if (!supabase) return;
-    const name = categoryName.trim();
-    const code = categoryCode.trim() || slugify(name);
-    if (!name || !categoryGroupId) return;
-    setMessage("");
-    const { error } = await supabase.from("categories").insert({
-      group_id: categoryGroupId,
-      name,
-      code,
-      default_type: categoryType,
-      default_is_recurring: categoryRecurring
-    });
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    setCategoryName("");
-    setCategoryCode("");
-    setCategoryRecurring(false);
-    await loadData();
-  };
-
-  const handleCreateEntry = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!supabase || !monthRow) return;
-    const parsedAmount = Number(entryForm.amount.replace(",", "."));
-    if (!entryForm.description.trim() || !entryForm.categoryId || Number.isNaN(parsedAmount)) return;
-
-    setMessage("");
+    if (!supabase || !monthRow || !isAdmin || !currentWorkspaceId) return;
+    const amount = parseMoney(entryForm.amount);
+    if (!entryForm.description.trim() || !entryForm.categoryId || Number.isNaN(amount)) return;
     const payload = {
+      workspace_id: currentWorkspaceId,
       month_id: monthRow.id,
       category_id: entryForm.categoryId,
       description: entryForm.description.trim(),
-      amount: parsedAmount,
+      amount,
       type: entryForm.type,
       status: entryForm.status,
       is_recurring: entryForm.isRecurring,
       planned_date: entryForm.plannedDate || null,
-      realized_at:
-        entryForm.status === "realizado"
-          ? entryForm.realizedAt || format(new Date(), "yyyy-MM-dd")
-          : null,
+      realized_at: entryForm.status === "realizado" ? entryForm.realizedAt || format(new Date(), "yyyy-MM-dd") : null,
       notes: entryForm.notes.trim() || null
     };
-
-    const { error } = await supabase.from("entries").insert(payload);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    setEntryForm(initialEntryForm);
+    const { error } = editingEntryId ? await supabase.from("entries").update(payload).eq("id", editingEntryId) : await supabase.from("entries").insert(payload);
+    if (error) return setMessage(error.message);
+    if (entryForm.isRecurring) await saveRecurrenceRule({ categoryId: entryForm.categoryId, description: entryForm.description.trim(), amount, type: entryForm.type, baseDate: entryForm.plannedDate || entryForm.realizedAt || format(parseISO(selectedMonth), "yyyy-MM-dd") });
+    setEntryForm(defaultEntryForm);
+    setEditingEntryId(null);
     await loadData();
   };
 
-  const handleToggleStatus = async (entry: EntryRow) => {
-    if (!supabase) return;
-    const nextStatus: EntryStatus = entry.status === "realizado" ? "previsto" : "realizado";
-    const { error } = await supabase
-      .from("entries")
-      .update({
-        status: nextStatus,
-        realized_at: nextStatus === "realizado" ? format(new Date(), "yyyy-MM-dd") : null
-      })
-      .eq("id", entry.id);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    await loadData();
+  const editEntry = (entry: EntryRow) => {
+    setEditingEntryId(entry.id);
+    setEntryForm({
+      description: entry.description,
+      amount: String(Number(entry.amount).toFixed(2)).replace(".", ","),
+      type: entry.type,
+      status: entry.status,
+      categoryId: entry.category_id,
+      isRecurring: entry.is_recurring,
+      plannedDate: entry.planned_date ?? "",
+      realizedAt: entry.realized_at ?? "",
+      notes: entry.notes ?? ""
+    });
   };
 
-  const handleDeleteEntry = async (entryId: string) => {
-    if (!supabase) return;
-    const { error } = await supabase.from("entries").delete().eq("id", entryId);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    await loadData();
+  const runAdminAction = async (fn: () => Promise<void>) => {
+    if (!isAdmin) return;
+    try { await fn(); await loadData(); } catch (error) { setMessage(error instanceof Error ? error.message : "Falha na operaÃ§Ã£o."); }
   };
-
-  const handleProjectNextMonth = async () => {
-    if (!supabase || !monthRow) return;
-    setMessage("");
-    const targetMonth = monthStartIso(addMonths(parseISO(selectedMonth), 1));
-    try {
-      const target = await ensureMonth(targetMonth);
-      const { data: rules, error: ruleError } = await supabase
-        .from("recurrence_rules")
-        .select(
-          "id, category_id, description, amount, type, day_of_month, start_month, end_month, active"
-        )
-        .eq("active", true);
-      if (ruleError) throw ruleError;
-
-      const targetDate = parseISO(targetMonth);
-      const validRules =
-        rules?.filter((rule) => {
-          const start = parseISO(rule.start_month);
-          if (isAfter(start, targetDate)) return false;
-          if (!rule.end_month) return true;
-          const end = parseISO(rule.end_month);
-          return !isAfter(targetDate, end);
-        }) ?? [];
-
-      if (!validRules.length) {
-        setMessage("Nenhuma recorrência ativa para projetar.");
-        return;
-      }
-
-      const { data: existingEntries, error: existingError } = await supabase
-        .from("entries")
-        .select("category_id, description")
-        .eq("month_id", target.id)
-        .eq("status", "previsto");
-      if (existingError) throw existingError;
-      const existingKey = new Set(
-        (existingEntries ?? []).map((entry) => `${entry.category_id}::${entry.description}`)
-      );
-
-      const rowsToInsert = validRules
-        .filter((rule) => !existingKey.has(`${rule.category_id}::${rule.description}`))
-        .map((rule) => {
-          const monthDate = parseISO(targetMonth);
-          const day = Math.min(rule.day_of_month, lastDayOfMonth(monthDate).getDate());
-          return {
-            month_id: target.id,
-            category_id: rule.category_id,
-            description: rule.description,
-            amount: Number(rule.amount),
-            type: rule.type as EntryType,
-            status: "previsto" as EntryStatus,
-            is_recurring: true,
-            planned_date: format(setDate(monthDate, day), "yyyy-MM-dd")
-          };
-        });
-
-      if (!rowsToInsert.length) {
-        setMessage("Próximo mês já está projetado com essas recorrências.");
-        return;
-      }
-
-      const { error: insertError } = await supabase.from("entries").insert(rowsToInsert);
-      if (insertError) throw insertError;
-      setMessage(
-        `${rowsToInsert.length} lançamentos recorrentes projetados para ${format(parseISO(targetMonth), "MM/yyyy")}.`
-      );
-      await loadData();
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Falha ao projetar próximo mês.";
-      setMessage(msg);
-    }
-  };
-
-  const monthLabel = format(parseISO(selectedMonth), "MMMM yyyy");
 
   useEffect(() => {
-    if (!supabase) return;
-    void loadData();
-  }, [loadData]);
+    if (!supabase) return setSessionReady(true);
+    supabase.auth.getSession().then(async ({ data }) => {
+      const user = data.session?.user ?? null;
+      setCurrentUserId(user?.id ?? null);
+      setCurrentEmail(user?.email ?? null);
+      if (user) {
+        await ensureProfile(user.id, user.email ?? null);
+        await ensureWorkspaceContext(user.id, user.email ?? null);
+      } else {
+        setRole(null);
+        setCurrentWorkspaceId(null);
+      }
+      setSessionReady(true);
+    });
+    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user ?? null;
+      setCurrentUserId(user?.id ?? null);
+      setCurrentEmail(user?.email ?? null);
+      if (user) {
+        await ensureProfile(user.id, user.email ?? null);
+        await ensureWorkspaceContext(user.id, user.email ?? null);
+      } else {
+        setRole(null);
+        setCurrentWorkspaceId(null);
+      }
+      setSessionReady(true);
+    });
+    return () => data.subscription.unsubscribe();
+  }, [ensureProfile, ensureWorkspaceContext]);
+
+  useEffect(() => {
+    if (currentUserId && role && currentWorkspaceId) void loadData();
+  }, [currentUserId, currentWorkspaceId, role, loadData]);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    if (!currentUserId && pathname !== "/auth/login") {
+      void navigate({ to: "/auth/login", replace: true });
+      return;
+    }
+    if (currentUserId && pathname.startsWith("/auth")) {
+      void navigate({ to: "/dashboard", replace: true });
+    }
+  }, [currentUserId, navigate, pathname, sessionReady]);
+
+  const getGroupName = (entry: EntryRow) =>
+    groupById[categoryById[entry.category_id]?.group_id ?? ""]?.name ?? "-";
+
+  const getCategoryName = (categoryId: string) => categoryById[categoryId]?.name ?? "-";
+
+  const createGroup = () =>
+    void runAdminAction(async () => {
+      if (!currentWorkspaceId) return;
+      const name = groupName.trim();
+      if (!name) return;
+      const code = (groupCode.trim() || slugify(name)).toUpperCase();
+      const { error } = await supabase!.from("category_groups").insert({ workspace_id: currentWorkspaceId, name, code, sort_order: groups.length + 1 });
+      if (error) throw error;
+      setGroupName("");
+      setGroupCode("");
+    });
+
+  const deleteGroup = (groupId: string) =>
+    void runAdminAction(async () => {
+      if (!currentWorkspaceId) return;
+      const { error } = await supabase!.from("category_groups").delete().eq("workspace_id", currentWorkspaceId).eq("id", groupId);
+      if (error) throw error;
+    });
+
+  const createCategory = () =>
+    void runAdminAction(async () => {
+      if (!currentWorkspaceId) return;
+      const name = categoryName.trim();
+      if (!name || !categoryGroupId) return;
+      const code = categoryCode.trim() || slugify(name);
+      const { error } = await supabase!
+        .from("categories")
+        .insert({
+          workspace_id: currentWorkspaceId,
+          name,
+          code,
+          group_id: categoryGroupId,
+          default_type: categoryType,
+          default_is_recurring: categoryRecurring
+        });
+      if (error) throw error;
+      setCategoryName("");
+      setCategoryCode("");
+      setCategoryRecurring(false);
+    });
+
+  const deleteCategory = (categoryIdToDelete: string) =>
+    void runAdminAction(async () => {
+      if (!currentWorkspaceId) return;
+      const { error } = await supabase!.from("categories").delete().eq("workspace_id", currentWorkspaceId).eq("id", categoryIdToDelete);
+      if (error) throw error;
+    });
+
+  const createInvite = () =>
+    void runAdminAction(async () => {
+      if (!currentWorkspaceId) return;
+      const email = inviteEmail.trim().toLowerCase();
+      if (!email) return;
+      const { error } = await supabase!
+        .from("user_invites")
+        .upsert({ workspace_id: currentWorkspaceId, email, role: inviteRole }, { onConflict: "workspace_id,email" });
+      if (error) throw error;
+      setInviteEmail("");
+    });
+
+  const updateUserRole = (userId: string, nextRole: string) =>
+    void runAdminAction(async () => {
+      if (!currentWorkspaceId) return;
+      const { error } = await supabase!
+        .from("workspace_members")
+        .update({ role: nextRole })
+        .eq("workspace_id", currentWorkspaceId)
+        .eq("user_id", userId);
+      if (error) throw error;
+    });
+
+  const toggleUserActive = (userId: string, currentActive: boolean) =>
+    void runAdminAction(async () => {
+      if (!currentWorkspaceId) return;
+      const { error } = await supabase!
+        .from("workspace_members")
+        .update({ active: !currentActive })
+        .eq("workspace_id", currentWorkspaceId)
+        .eq("user_id", userId);
+      if (error) throw error;
+    });
+
+  if (!isSupabaseConfigured) return <div className="auth-shell"><section className="auth-card"><p>Configure o Supabase no .env</p></section></div>;
+  if (!sessionReady) return <div className="auth-shell"><section className="auth-card"><p>Carregando...</p></section></div>;
+  if (!currentUserId) return <Suspense fallback={<div className="auth-shell"><section className="auth-card"><p>Carregando...</p></section></div>}><AuthScreen /></Suspense>;
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Controle Financeiro</p>
-          <h1>Personal Finances Hub</h1>
-        </div>
-        <div className="month-picker">
-          <label htmlFor="month">Competência</label>
-          <input
-            id="month"
-            type="month"
-            value={selectedMonth.slice(0, 7)}
-            onChange={(event) => {
-              setSelectedMonth(`${event.target.value}-01`);
-            }}
-          />
-          <button type="button" className="ghost-button" onClick={loadData} disabled={loading}>
-            <RefreshCw size={16} />
-            Atualizar
-          </button>
-        </div>
-      </header>
+    <div className="shell">
+      <Sidebar
+        page={page}
+        currentEmail={currentEmail}
+        role={role}
+        onChangePage={(nextPage) =>
+          void navigate({
+            to: nextPage === "dashboard" ? "/dashboard" : nextPage === "entries" ? "/entries" : "/settings"
+          })
+        }
+        onOpenSettingsHub={() => {
+          void navigate({ to: "/settings" });
+        }}
+      />
 
-      {!isSupabaseConfigured ? (
-        <section className="panel error-panel">
-          <h2>Configure o Supabase</h2>
-          <p>
-            Crie o arquivo <code>.env.local</code> com <code>VITE_SUPABASE_URL</code> e{" "}
-            <code>VITE_SUPABASE_ANON_KEY</code>. Depois execute <code>npm run dev</code>.
-          </p>
-        </section>
-      ) : null}
+      <div className="main-area">
+        <MainHeader
+          showFinancialChrome={showFinancialChrome}
+          pageTitle={pageTitle}
+          selectedMonth={selectedMonth}
+          monthStrip={monthStrip}
+          onSelectMonth={setSelectedMonth}
+          onPrevMonth={() => setSelectedMonth(monthStartIso(addMonths(parseISO(selectedMonth), -1)))}
+          onNextMonth={() => setSelectedMonth(monthStartIso(addMonths(parseISO(selectedMonth), 1)))}
+        />
 
-      <section className="kpis">
-        <article className="kpi-card">
-          <div className="kpi-icon income">
-            <CircleDollarSign size={20} />
-          </div>
-          <div>
-            <span>Receitas</span>
-            <strong>{formatBRL(computedTotals.receita_total)}</strong>
-          </div>
-        </article>
-        <article className="kpi-card">
-          <div className="kpi-icon expense">
-            <BadgeDollarSign size={20} />
-          </div>
-          <div>
-            <span>Despesas</span>
-            <strong>{formatBRL(computedTotals.despesa_total)}</strong>
-          </div>
-        </article>
-        <article className="kpi-card">
-          <div className="kpi-icon invest">
-            <Coins size={20} />
-          </div>
-          <div>
-            <span>Investimentos</span>
-            <strong>{formatBRL(computedTotals.investimento_total)}</strong>
-          </div>
-        </article>
-        <article className="kpi-card">
-          <div className="kpi-icon result">
-            <CalendarDays size={20} />
-          </div>
-          <div>
-            <span>Resultado ({monthLabel})</span>
-            <strong
-              className={computedTotals.resultado_mes >= 0 ? "value-positive" : "value-negative"}
-            >
-              {formatBRL(computedTotals.resultado_mes)}
-            </strong>
-          </div>
-        </article>
-      </section>
+        {showFinancialChrome ? <KpiSummary totals={computedTotals} formatBRL={formatBRL} /> : null}
+        {message ? <p className="feedback">{message}</p> : null}
 
-      {message ? <p className="feedback">{message}</p> : null}
+        {page === "dashboard" ? (
+          <Suspense fallback={<p className="loading-note">Carregando dashboard...</p>}>
+            <DashboardPage
+              trendMode={trendMode}
+              trendWindow={trendWindow}
+              onChangeTrendMode={setTrendMode}
+              onChangeTrendWindow={setTrendWindow}
+              trendRows={trendRows}
+              trendMaxValue={trendMaxValue}
+              trendResultMaxAbs={trendResultMaxAbs}
+              monthlyStatusTrend={monthlyStatusTrend}
+              topExpenseCategories={topExpenseCategories}
+              boardRows={boardRows}
+              formatBRL={formatBRL}
+            />
+          </Suspense>
+        ) : null}
 
-      <main className="layout-grid">
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Lançamentos</h2>
-            <div className="inline-controls">
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as "todos" | EntryStatus)}
-              >
-                <option value="todos">Todos</option>
-                <option value="previsto">Previstos</option>
-                <option value="realizado">Realizados</option>
-                <option value="cancelado">Cancelados</option>
-              </select>
-              <button type="button" className="ghost-button" onClick={handleProjectNextMonth}>
-                Projetar próximo mês
-              </button>
-            </div>
-          </div>
+        {page === "entries" ? (
+          <Suspense fallback={<p className="loading-note">Carregando lançamentos...</p>}>
+            <EntriesPage
+              statusFilter={statusFilter}
+              onChangeStatusFilter={setStatusFilter}
+              entryViewMode={entryViewMode}
+              onChangeEntryViewMode={setEntryViewMode}
+              visibleEntries={visibleEntries}
+              boardRows={boardRows}
+              categories={categories}
+              entryForm={entryForm}
+              editingEntryId={editingEntryId}
+              isAdmin={isAdmin}
+              formatBRL={formatBRL}
+              getGroupName={getGroupName}
+              getCategoryName={getCategoryName}
+              onEditEntry={editEntry}
+            onToggleEntryStatus={(entry) =>
+              void runAdminAction(async () => {
+                if (!currentWorkspaceId) return;
+                const next = entry.status === "realizado" ? "previsto" : "realizado";
+                const { error } = await supabase!
+                  .from("entries")
+                  .update({ status: next, realized_at: next === "realizado" ? format(new Date(), "yyyy-MM-dd") : null })
+                  .eq("workspace_id", currentWorkspaceId)
+                  .eq("id", entry.id);
+                if (error) throw error;
+              })
+            }
+            onDeleteEntry={(entry) =>
+              void runAdminAction(async () => {
+                if (!currentWorkspaceId) return;
+                const { error } = await supabase!.from("entries").delete().eq("workspace_id", currentWorkspaceId).eq("id", entry.id);
+                if (error) throw error;
+              })
+            }
+              onSubmitEntry={submitEntry}
+              onCancelEdit={() => {
+                setEditingEntryId(null);
+                setEntryForm(defaultEntryForm);
+              }}
+              onEntryFormChange={setEntryForm}
+            />
+          </Suspense>
+        ) : null}
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Descrição</th>
-                  <th>Grupo</th>
-                  <th>Tipo</th>
-                  <th>Status</th>
-                  <th>Valor</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleEntries.map((entry) => {
-                  const groupName = entry.category?.group_id
-                    ? groupById[entry.category.group_id]?.name
-                    : "-";
-                  return (
-                    <tr key={entry.id}>
-                      <td>
-                        <p>{entry.description}</p>
-                        {entry.notes ? <small>{entry.notes}</small> : null}
-                      </td>
-                      <td>{groupName || "-"}</td>
-                      <td>
-                        <span className={`pill ${entry.type}`}>{entry.type}</span>
-                      </td>
-                      <td>
-                        <span className={`pill status ${entry.status}`}>{entry.status}</span>
-                      </td>
-                      <td
-                        className={
-                          entry.type === "receita" ? "value-positive amount" : "value-negative amount"
-                        }
-                      >
-                        {formatBRL(Number(entry.amount))}
-                      </td>
-                      <td className="actions">
-                        {entry.status !== "cancelado" ? (
-                          <button type="button" onClick={() => handleToggleStatus(entry)}>
-                            {entry.status === "realizado" ? "Marcar previsto" : "Marcar realizado"}
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="danger"
-                          onClick={() => handleDeleteEntry(entry.id)}
-                          aria-label="Excluir lançamento"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {!visibleEntries.length ? (
-              <div className="empty-state">Sem lançamentos para esse filtro na competência atual.</div>
-            ) : null}
-          </div>
-        </section>
+        {page === "settings" ? (
+          <Suspense fallback={<p className="loading-note">Carregando configurações...</p>}>
+            <SettingsPage
+              settingsView={settingsView}
+              isAdmin={isAdmin}
+              groups={groups}
+              categories={categories}
+              users={users}
+              invites={invites}
+              groupById={groupById}
+              groupName={groupName}
+              groupCode={groupCode}
+              categoryName={categoryName}
+              categoryCode={categoryCode}
+              categoryGroupId={categoryGroupId}
+              categoryType={categoryType}
+              categoryRecurring={categoryRecurring}
+              inviteEmail={inviteEmail}
+              inviteRole={inviteRole}
+              onChangeSettingsView={(view) =>
+                void navigate({
+                  to:
+                    view === "hub"
+                      ? "/settings"
+                      : view === "groups"
+                        ? "/settings/groups"
+                        : view === "categories"
+                          ? "/settings/categories"
+                          : "/settings/users"
+                })
+              }
+              onChangeGroupName={setGroupName}
+              onChangeGroupCode={setGroupCode}
+              onChangeCategoryName={setCategoryName}
+              onChangeCategoryCode={setCategoryCode}
+              onChangeCategoryGroupId={setCategoryGroupId}
+              onChangeCategoryType={setCategoryType}
+              onChangeCategoryRecurring={setCategoryRecurring}
+              onChangeInviteEmail={setInviteEmail}
+              onChangeInviteRole={setInviteRole}
+              onCreateGroup={createGroup}
+              onDeleteGroup={deleteGroup}
+              onCreateCategory={createCategory}
+              onDeleteCategory={deleteCategory}
+              onCreateInvite={createInvite}
+              onChangeUserRole={updateUserRole}
+              onToggleUserActive={toggleUserActive}
+            />
+          </Suspense>
+        ) : null}
 
-        <aside className="side-panels">
-          <section className="panel">
-            <div className="panel-header">
-              <h2>Novo Lançamento</h2>
-              <Plus size={16} />
-            </div>
-            <form onSubmit={handleCreateEntry} className="form-grid">
-              <input
-                placeholder="Descrição"
-                value={entryForm.description}
-                onChange={(event) =>
-                  setEntryForm((prev) => ({ ...prev, description: event.target.value }))
-                }
-                required
-              />
-              <div className="two-col">
-                <input
-                  placeholder="Valor"
-                  inputMode="decimal"
-                  value={entryForm.amount}
-                  onChange={(event) =>
-                    setEntryForm((prev) => ({ ...prev, amount: event.target.value }))
-                  }
-                  required
-                />
-                <select
-                  value={entryForm.type}
-                  onChange={(event) =>
-                    setEntryForm((prev) => ({ ...prev, type: event.target.value as EntryType }))
-                  }
-                >
-                  <option value="receita">receita</option>
-                  <option value="despesa">despesa</option>
-                  <option value="investimento">investimento</option>
-                </select>
-              </div>
-              <select
-                value={entryForm.categoryId}
-                onChange={(event) =>
-                  setEntryForm((prev) => ({ ...prev, categoryId: event.target.value }))
-                }
-                required
-              >
-                <option value="">Selecione a categoria</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-              <div className="two-col">
-                <select
-                  value={entryForm.status}
-                  onChange={(event) =>
-                    setEntryForm((prev) => ({
-                      ...prev,
-                      status: event.target.value as EntryStatus
-                    }))
-                  }
-                >
-                  <option value="previsto">previsto</option>
-                  <option value="realizado">realizado</option>
-                  <option value="cancelado">cancelado</option>
-                </select>
-                <input
-                  type="date"
-                  value={entryForm.status === "realizado" ? entryForm.realizedAt : entryForm.plannedDate}
-                  onChange={(event) =>
-                    setEntryForm((prev) =>
-                      prev.status === "realizado"
-                        ? { ...prev, realizedAt: event.target.value }
-                        : { ...prev, plannedDate: event.target.value }
-                    )
-                  }
-                />
-              </div>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={entryForm.isRecurring}
-                  onChange={(event) =>
-                    setEntryForm((prev) => ({ ...prev, isRecurring: event.target.checked }))
-                  }
-                />
-                Recorrente
-              </label>
-              <textarea
-                placeholder="Notas (opcional)"
-                value={entryForm.notes}
-                onChange={(event) => setEntryForm((prev) => ({ ...prev, notes: event.target.value }))}
-              />
-              <button type="submit" className="primary-button">
-                Salvar lançamento
-              </button>
-            </form>
-          </section>
-
-          <section className="panel">
-            <h2>Cadastro de Grupo</h2>
-            <form onSubmit={handleCreateGroup} className="form-grid compact">
-              <input
-                placeholder="Nome do grupo (ex: CARTÃO)"
-                value={groupName}
-                onChange={(event) => setGroupName(event.target.value)}
-                required
-              />
-              <input
-                placeholder="Código (opcional)"
-                value={groupCode}
-                onChange={(event) => setGroupCode(event.target.value)}
-              />
-              <button type="submit" className="ghost-button">
-                Criar grupo
-              </button>
-            </form>
-          </section>
-
-          <section className="panel">
-            <h2>Cadastro de Categoria</h2>
-            <form onSubmit={handleCreateCategory} className="form-grid compact">
-              <input
-                placeholder="Nome da categoria"
-                value={categoryName}
-                onChange={(event) => setCategoryName(event.target.value)}
-                required
-              />
-              <input
-                placeholder="Código (opcional)"
-                value={categoryCode}
-                onChange={(event) => setCategoryCode(event.target.value)}
-              />
-              <select
-                value={categoryGroupId}
-                onChange={(event) => setCategoryGroupId(event.target.value)}
-                required
-              >
-                <option value="">Selecione o grupo</option>
-                {groups.map((group) => (
-                  <option value={group.id} key={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-              <div className="two-col">
-                <select
-                  value={categoryType}
-                  onChange={(event) => setCategoryType(event.target.value as EntryType)}
-                >
-                  <option value="receita">receita</option>
-                  <option value="despesa">despesa</option>
-                  <option value="investimento">investimento</option>
-                </select>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={categoryRecurring}
-                    onChange={(event) => setCategoryRecurring(event.target.checked)}
-                  />
-                  Recorrente
-                </label>
-              </div>
-              <button type="submit" className="ghost-button">
-                Criar categoria
-              </button>
-            </form>
-          </section>
-        </aside>
-      </main>
+        {loading ? <p className="loading-note">Atualizando dados...</p> : null}
+      </div>
     </div>
   );
 }
 
 export default App;
+
+
+
+
+
+
+
