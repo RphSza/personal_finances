@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:snapshot": "node scripts/run-snapshot.mjs",
+    "db:snapshot:local": "node scripts/run-snapshot.mjs -Local",
+    "db:snapshot:all": "node scripts/run-snapshot.mjs -Schemas public,auth,storage",
+    "db:snapshot:nodocker": "node scripts/run-snapshot.mjs -NoDocker"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

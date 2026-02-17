@@ -1,5 +1,6 @@
-﻿import { FormEvent } from "react";
+import { FormEvent } from "react";
 import { List, Pencil, Sheet, Trash2 } from "lucide-react";
+import { Spinner } from "../../components/LoadingState";
 import type { EntryStatus, EntryType, CategoryRow, EntryForm, EntryRow } from "../../types";
 import type { EntryViewMode } from "../app/types";
 
@@ -28,6 +29,8 @@ type EntriesPageProps = {
   onToggleEntryStatus: (entry: EntryRow) => void;
   onDeleteEntry: (entry: EntryRow) => void;
   onSubmitEntry: (event: FormEvent) => Promise<void>;
+  entrySubmitting: boolean;
+  actionLoadingKey: string | null;
   onCancelEdit: () => void;
   onEntryFormChange: (next: EntryForm) => void;
 };
@@ -50,6 +53,8 @@ export function EntriesPage({
   onToggleEntryStatus,
   onDeleteEntry,
   onSubmitEntry,
+  entrySubmitting,
+  actionLoadingKey,
   onCancelEdit,
   onEntryFormChange
 }: EntriesPageProps) {
@@ -98,9 +103,20 @@ export function EntriesPage({
                     <td><span className={`pill status ${entry.status}`}>{entry.status}</span></td>
                     <td className="amount">{formatBRL(Number(entry.amount))}</td>
                     <td className="actions">
-                      <button onClick={() => onEditEntry(entry)} disabled={!isAdmin}><Pencil size={14} /></button>
-                      <button onClick={() => onToggleEntryStatus(entry)} disabled={!isAdmin || entry.status === "cancelado"}>OK</button>
-                      <button className="danger" onClick={() => onDeleteEntry(entry)} disabled={!isAdmin}><Trash2 size={14} /></button>
+                      <button onClick={() => onEditEntry(entry)} disabled={!isAdmin || entrySubmitting}><Pencil size={14} /></button>
+                      <button
+                        onClick={() => onToggleEntryStatus(entry)}
+                        disabled={!isAdmin || entry.status === "cancelado" || actionLoadingKey === `toggle-entry-${entry.id}`}
+                      >
+                        {actionLoadingKey === `toggle-entry-${entry.id}` ? <Spinner label="..." compact /> : "OK"}
+                      </button>
+                      <button
+                        className="danger"
+                        onClick={() => onDeleteEntry(entry)}
+                        disabled={!isAdmin || actionLoadingKey === `delete-entry-${entry.id}`}
+                      >
+                        {actionLoadingKey === `delete-entry-${entry.id}` ? <Spinner label="..." compact /> : <Trash2 size={14} />}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -137,7 +153,7 @@ export function EntriesPage({
             value={entryForm.description}
             onChange={(e) => onEntryFormChange({ ...entryForm, description: e.target.value })}
             required
-            disabled={!isAdmin}
+            disabled={!isAdmin || entrySubmitting}
           />
 
           <div className="two-col">
@@ -146,12 +162,12 @@ export function EntriesPage({
               value={entryForm.amount}
               onChange={(e) => onEntryFormChange({ ...entryForm, amount: e.target.value })}
               required
-              disabled={!isAdmin}
+              disabled={!isAdmin || entrySubmitting}
             />
             <select
               value={entryForm.type}
               onChange={(e) => onEntryFormChange({ ...entryForm, type: e.target.value as EntryType })}
-              disabled={!isAdmin}
+              disabled={!isAdmin || entrySubmitting}
             >
               <option value="receita">receita</option>
               <option value="despesa">despesa</option>
@@ -163,7 +179,7 @@ export function EntriesPage({
             value={entryForm.categoryId}
             onChange={(e) => onEntryFormChange({ ...entryForm, categoryId: e.target.value })}
             required
-            disabled={!isAdmin}
+            disabled={!isAdmin || entrySubmitting}
           >
             <option value="">Selecione a categoria</option>
             {categories.map((category) => (
@@ -175,7 +191,7 @@ export function EntriesPage({
             <select
               value={entryForm.status}
               onChange={(e) => onEntryFormChange({ ...entryForm, status: e.target.value as EntryStatus })}
-              disabled={!isAdmin}
+              disabled={!isAdmin || entrySubmitting}
             >
               <option value="previsto">previsto</option>
               <option value="realizado">realizado</option>
@@ -191,7 +207,7 @@ export function EntriesPage({
                     : { ...entryForm, plannedDate: e.target.value }
                 )
               }
-              disabled={!isAdmin}
+              disabled={!isAdmin || entrySubmitting}
             />
           </div>
 
@@ -200,7 +216,7 @@ export function EntriesPage({
               type="checkbox"
               checked={entryForm.isRecurring}
               onChange={(e) => onEntryFormChange({ ...entryForm, isRecurring: e.target.checked })}
-              disabled={!isAdmin}
+              disabled={!isAdmin || entrySubmitting}
             />
             Recorrente
           </label>
@@ -209,15 +225,25 @@ export function EntriesPage({
             placeholder="Notas"
             value={entryForm.notes}
             onChange={(e) => onEntryFormChange({ ...entryForm, notes: e.target.value })}
-            disabled={!isAdmin}
+            disabled={!isAdmin || entrySubmitting}
           />
 
           <div className="inline-controls">
-            <button type="submit" className="primary-button" disabled={!isAdmin}>
-              {editingEntryId ? "Salvar alterações" : "Salvar lançamento"}
+            <button
+              type="submit"
+              className={`primary-button ${entrySubmitting ? "is-loading" : ""}`}
+              disabled={!isAdmin || entrySubmitting}
+            >
+              {entrySubmitting ? (
+                <Spinner label={editingEntryId ? "Salvando alterações..." : "Salvando lançamento..."} compact />
+              ) : editingEntryId ? (
+                "Salvar alterações"
+              ) : (
+                "Salvar lançamento"
+              )}
             </button>
             {editingEntryId ? (
-              <button type="button" className="ghost-button" onClick={onCancelEdit}>
+              <button type="button" className="ghost-button" onClick={onCancelEdit} disabled={entrySubmitting}>
                 Cancelar
               </button>
             ) : null}

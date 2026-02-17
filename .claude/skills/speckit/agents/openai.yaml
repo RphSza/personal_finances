@@ -1,0 +1,4 @@
+interface:
+  display_name: Speckit
+  short_description: Especificações de produto e arquitetura
+  default_prompt: Atualize as specs do projeto com base no pedido, consultando lições aprendidas e mantendo consistência entre produto, arquitetura, dados, segurança e roadmap.

@@ -1,4 +1,5 @@
-﻿import { ArrowLeft, ArrowRight, FolderTree, Tags, Trash2, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, FolderTree, Tags, Trash2, Users } from "lucide-react";
+import { Spinner } from "../../components/LoadingState";
 import type { SettingsView } from "../app/types";
 import type { CategoryGroupRow, CategoryRow, UserInviteRow, UserProfileRow, UserRole, EntryType } from "../../types";
 
@@ -19,6 +20,7 @@ type SettingsPageProps = {
   categoryRecurring: boolean;
   inviteEmail: string;
   inviteRole: UserRole;
+  actionLoadingKey: string | null;
   onChangeSettingsView: (view: SettingsView) => void;
   onChangeGroupName: (value: string) => void;
   onChangeGroupCode: (value: string) => void;
@@ -55,6 +57,7 @@ export function SettingsPage({
   categoryRecurring,
   inviteEmail,
   inviteRole,
+  actionLoadingKey,
   onChangeSettingsView,
   onChangeGroupName,
   onChangeGroupCode,
@@ -124,9 +127,11 @@ export function SettingsPage({
             }}
             className="form-grid"
           >
-            <input placeholder="Nome do grupo" value={groupName} onChange={(e) => onChangeGroupName(e.target.value)} disabled={!isAdmin} required />
-            <input placeholder="Código opcional" value={groupCode} onChange={(e) => onChangeGroupCode(e.target.value)} disabled={!isAdmin} />
-            <button type="submit" className="ghost-button" disabled={!isAdmin}>Criar grupo</button>
+            <input placeholder="Nome do grupo" value={groupName} onChange={(e) => onChangeGroupName(e.target.value)} disabled={!isAdmin || actionLoadingKey === "create-group"} required />
+            <input placeholder="Código opcional" value={groupCode} onChange={(e) => onChangeGroupCode(e.target.value)} disabled={!isAdmin || actionLoadingKey === "create-group"} />
+            <button type="submit" className={`ghost-button ${actionLoadingKey === "create-group" ? "is-loading" : ""}`} disabled={!isAdmin || actionLoadingKey === "create-group"}>
+              {actionLoadingKey === "create-group" ? <Spinner label="Criando grupo..." compact /> : "Criar grupo"}
+            </button>
           </form>
 
           <ul className="management-list">
@@ -136,8 +141,8 @@ export function SettingsPage({
                   <strong>{group.name}</strong>
                   <small>{group.code}</small>
                 </div>
-                <button className="danger" disabled={!isAdmin} onClick={() => onDeleteGroup(group.id)}>
-                  <Trash2 size={14} />
+                <button className="danger" disabled={!isAdmin || actionLoadingKey === `delete-group-${group.id}`} onClick={() => onDeleteGroup(group.id)}>
+                  {actionLoadingKey === `delete-group-${group.id}` ? <Spinner label="..." compact /> : <Trash2 size={14} />}
                 </button>
               </li>
             ))}
@@ -165,26 +170,28 @@ export function SettingsPage({
             }}
             className="form-grid"
           >
-            <input placeholder="Nome da categoria" value={categoryName} onChange={(e) => onChangeCategoryName(e.target.value)} disabled={!isAdmin} required />
-            <input placeholder="Código opcional" value={categoryCode} onChange={(e) => onChangeCategoryCode(e.target.value)} disabled={!isAdmin} />
-            <select value={categoryGroupId} onChange={(e) => onChangeCategoryGroupId(e.target.value)} disabled={!isAdmin}>
+            <input placeholder="Nome da categoria" value={categoryName} onChange={(e) => onChangeCategoryName(e.target.value)} disabled={!isAdmin || actionLoadingKey === "create-category"} required />
+            <input placeholder="Código opcional" value={categoryCode} onChange={(e) => onChangeCategoryCode(e.target.value)} disabled={!isAdmin || actionLoadingKey === "create-category"} />
+            <select value={categoryGroupId} onChange={(e) => onChangeCategoryGroupId(e.target.value)} disabled={!isAdmin || actionLoadingKey === "create-category"}>
               <option value="">Selecione o grupo</option>
               {groups.map((group) => (
                 <option key={group.id} value={group.id}>{group.name}</option>
               ))}
             </select>
             <div className="two-col">
-              <select value={categoryType} onChange={(e) => onChangeCategoryType(e.target.value as EntryType)} disabled={!isAdmin}>
+              <select value={categoryType} onChange={(e) => onChangeCategoryType(e.target.value as EntryType)} disabled={!isAdmin || actionLoadingKey === "create-category"}>
                 <option value="receita">receita</option>
                 <option value="despesa">despesa</option>
                 <option value="investimento">investimento</option>
               </select>
               <label className="checkbox">
-                <input type="checkbox" checked={categoryRecurring} onChange={(e) => onChangeCategoryRecurring(e.target.checked)} disabled={!isAdmin} />
+                <input type="checkbox" checked={categoryRecurring} onChange={(e) => onChangeCategoryRecurring(e.target.checked)} disabled={!isAdmin || actionLoadingKey === "create-category"} />
                 Recorrente padrão
               </label>
             </div>
-            <button type="submit" className="ghost-button" disabled={!isAdmin}>Criar categoria</button>
+            <button type="submit" className={`ghost-button ${actionLoadingKey === "create-category" ? "is-loading" : ""}`} disabled={!isAdmin || actionLoadingKey === "create-category"}>
+              {actionLoadingKey === "create-category" ? <Spinner label="Criando categoria..." compact /> : "Criar categoria"}
+            </button>
           </form>
 
           <ul className="management-list">
@@ -194,8 +201,8 @@ export function SettingsPage({
                   <strong>{category.name}</strong>
                   <small>{groupById[category.group_id]?.name ?? "-"} - {category.default_type}</small>
                 </div>
-                <button className="danger" disabled={!isAdmin} onClick={() => onDeleteCategory(category.id)}>
-                  <Trash2 size={14} />
+                <button className="danger" disabled={!isAdmin || actionLoadingKey === `delete-category-${category.id}`} onClick={() => onDeleteCategory(category.id)}>
+                  {actionLoadingKey === `delete-category-${category.id}` ? <Spinner label="..." compact /> : <Trash2 size={14} />}
                 </button>
               </li>
             ))}
@@ -224,13 +231,15 @@ export function SettingsPage({
               }}
               className="form-grid"
             >
-              <input type="email" placeholder="Email do usuário" value={inviteEmail} onChange={(e) => onChangeInviteEmail(e.target.value)} required />
-              <select value={inviteRole} onChange={(e) => onChangeInviteRole(e.target.value as UserRole)}>
+              <input type="email" placeholder="Email do usuário" value={inviteEmail} onChange={(e) => onChangeInviteEmail(e.target.value)} disabled={actionLoadingKey === "create-invite"} required />
+              <select value={inviteRole} onChange={(e) => onChangeInviteRole(e.target.value as UserRole)} disabled={actionLoadingKey === "create-invite"}>
                 <option value="owner">owner</option>
                 <option value="viewer">viewer</option>
                 <option value="admin">admin</option>
               </select>
-              <button type="submit" className="ghost-button">Adicionar convite</button>
+              <button type="submit" className={`ghost-button ${actionLoadingKey === "create-invite" ? "is-loading" : ""}`} disabled={actionLoadingKey === "create-invite"}>
+                {actionLoadingKey === "create-invite" ? <Spinner label="Enviando convite..." compact /> : "Adicionar convite"}
+              </button>
             </form>
 
             <h4>Perfis</h4>
@@ -242,13 +251,20 @@ export function SettingsPage({
                     <small>{user.active ? "ativo" : "inativo"}</small>
                   </div>
                   <div className="inline-controls">
-                    <select value={user.role} onChange={(e) => onChangeUserRole(user.id, e.target.value)}>
+                    <select
+                      value={user.role}
+                      onChange={(e) => onChangeUserRole(user.id, e.target.value)}
+                      disabled={actionLoadingKey === `update-role-${user.id}` || actionLoadingKey === `toggle-user-${user.id}`}
+                    >
                       <option value="owner">owner</option>
                       <option value="viewer">viewer</option>
                       <option value="admin">admin</option>
                     </select>
-                    <button onClick={() => onToggleUserActive(user.id, user.active)}>
-                      {user.active ? "Desativar" : "Ativar"}
+                    <button
+                      onClick={() => onToggleUserActive(user.id, user.active)}
+                      disabled={actionLoadingKey === `toggle-user-${user.id}` || actionLoadingKey === `update-role-${user.id}`}
+                    >
+                      {actionLoadingKey === `toggle-user-${user.id}` ? <Spinner label="Atualizando..." compact /> : user.active ? "Desativar" : "Ativar"}
                     </button>
                   </div>
                 </li>

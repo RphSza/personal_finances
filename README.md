@@ -23,14 +23,21 @@ npm install
 cp .env.example .env.local
 ```
 
+No PowerShell (Windows), você pode usar:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
 Preencha:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-3. Garanta que o DDL foi executado no Supabase:
+3. Garanta que os DDLs foram executados no Supabase:
 
 - `supabase_ddl.sql`
+- `supabase_auth_rbac.sql`
 
 4. Rode o projeto:
 
@@ -38,15 +45,24 @@ Preencha:
 npm run dev
 ```
 
-## Funcionalidades iniciais
+## Funcionalidades atuais
 
-- Seleção de competência mensal.
+- Auth com Supabase (login e signup).
+- Perfis `admin` e `viewer` (viewer = somente leitura).
+- Sidebar com Dashboard, Lançamentos e Configurações.
+- Navegação mensal rápida com faixa de meses (inspirada em abas).
 - KPIs de receita, despesa, investimento e resultado.
-- CRUD de lançamentos (`entries`) com status previsto/realizado/cancelado.
-- Cadastro rápido de grupos e categorias.
-- Projeção automática do próximo mês a partir de `recurrence_rules`.
+- CRUD de lançamentos com edição, status e exclusão.
+- Visualização em lista e em grade por grupos.
+- Gestão de grupos, categorias e usuários na área de Configurações.
+- Projeção automática de recorrências ao abrir a competência.
 
-## Observações de produção
+## Bootstrap de admin
 
-- Crie políticas RLS para `months`, `category_groups`, `categories`, `entries`, `recurrence_rules` e `monthly_balances`.
-- Para multiusuário, adicione `user_id` nas tabelas principais e filtre por usuário em todas as queries/policies.
+Após executar `supabase_auth_rbac.sql`, rode no SQL Editor:
+
+```sql
+update public.user_profiles
+set role = 'admin'
+where id = 'SEU_AUTH_USER_UUID';
+```

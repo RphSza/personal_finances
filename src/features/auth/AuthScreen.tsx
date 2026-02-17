@@ -1,5 +1,6 @@
-﻿import { FormEvent, useState } from "react";
+import { FormEvent, useState } from "react";
 import { ArrowRight, Eye, EyeOff, Lock, Mail, Sparkles } from "lucide-react";
+import { Spinner } from "../../components/LoadingState";
 import { supabase } from "../../lib/supabase";
 
 type AuthMode = "signin" | "signup";
@@ -46,10 +47,10 @@ export function AuthScreen() {
           </p>
 
           <div className="auth-switch">
-            <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")} type="button">
+            <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")} type="button" disabled={loading}>
               Entrar
             </button>
-            <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")} type="button">
+            <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")} type="button" disabled={loading}>
               Criar conta
             </button>
           </div>
@@ -65,6 +66,7 @@ export function AuthScreen() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  disabled={loading}
                 />
               </span>
             </label>
@@ -79,12 +81,14 @@ export function AuthScreen() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  disabled={loading}
                 />
                 <button
                   type="button"
                   className="icon-button"
                   onClick={() => setShowPassword((prev) => !prev)}
                   aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                  disabled={loading}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -97,18 +101,19 @@ export function AuthScreen() {
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
+                  disabled={loading}
                 />
                 Lembrar de mim
               </label>
               {mode === "signin" ? (
-                <button type="button" className="auth-link">
+                <button type="button" className="auth-link" disabled={loading}>
                   Esqueci minha senha
                 </button>
               ) : null}
             </div>
 
-            <button type="submit" className="primary-button auth-submit" disabled={loading}>
-              {mode === "signin" ? "Entrar" : "Criar conta"}
+            <button type="submit" className={`primary-button auth-submit ${loading ? "is-loading" : ""}`} disabled={loading}>
+              {loading ? <Spinner label={mode === "signin" ? "Entrando..." : "Criando conta..."} compact /> : mode === "signin" ? "Entrar" : "Criar conta"}
             </button>
           </form>
 
@@ -118,6 +123,7 @@ export function AuthScreen() {
               className="auth-link"
               type="button"
               onClick={() => setMode((prev) => (prev === "signin" ? "signup" : "signin"))}
+              disabled={loading}
             >
               {mode === "signin" ? "Crie agora" : "Entrar"}
             </button>

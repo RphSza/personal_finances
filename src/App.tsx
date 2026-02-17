@@ -2,6 +2,7 @@
 import { addMonths, format, isAfter, lastDayOfMonth, parseISO, setDate } from "date-fns";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
+import { LoadingCard, Spinner } from "./components/LoadingState";
 import { KpiSummary } from "./features/dashboard/KpiSummary";
 import { Sidebar } from "./layout/Sidebar";
 import { MainHeader } from "./layout/MainHeader";
@@ -93,6 +94,8 @@ function App() {
   const [inviteRole, setInviteRole] = useState<UserRole>("viewer");
 
   const [loading, setLoading] = useState(false);
+  const [entrySubmitting, setEntrySubmitting] = useState(false);
+  const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -547,12 +550,27 @@ function App() {
       realized_at: entryForm.status === "realizado" ? entryForm.realizedAt || format(new Date(), "yyyy-MM-dd") : null,
       notes: entryForm.notes.trim() || null
     };
-    const { error } = editingEntryId ? await supabase.from("entries").update(payload).eq("id", editingEntryId) : await supabase.from("entries").insert(payload);
-    if (error) return setMessage(error.message);
-    if (entryForm.isRecurring) await saveRecurrenceRule({ categoryId: entryForm.categoryId, description: entryForm.description.trim(), amount, type: entryForm.type, baseDate: entryForm.plannedDate || entryForm.realizedAt || format(parseISO(selectedMonth), "yyyy-MM-dd") });
-    setEntryForm(defaultEntryForm);
-    setEditingEntryId(null);
-    await loadData();
+    setEntrySubmitting(true);
+    try {
+      const { error } = editingEntryId
+        ? await supabase.from("entries").update(payload).eq("id", editingEntryId)
+        : await supabase.from("entries").insert(payload);
+      if (error) return setMessage(error.message);
+      if (entryForm.isRecurring) {
+        await saveRecurrenceRule({
+          categoryId: entryForm.categoryId,
+          description: entryForm.description.trim(),
+          amount,
+          type: entryForm.type,
+          baseDate: entryForm.plannedDate || entryForm.realizedAt || format(parseISO(selectedMonth), "yyyy-MM-dd")
+        });
+      }
+      setEntryForm(defaultEntryForm);
+      setEditingEntryId(null);
+      await loadData();
+    } finally {
+      setEntrySubmitting(false);
+    }
   };
 
   const editEntry = (entry: EntryRow) => {
@@ -570,9 +588,17 @@ function App() {
     });
   };
 
-  const runAdminAction = async (fn: () => Promise<void>) => {
+  const runAdminAction = async (fn: () => Promise<void>, loadingKey: string) => {
     if (!isAdmin) return;
-    try { await fn(); await loadData(); } catch (error) { setMessage(error instanceof Error ? error.message : "Falha na operaÃ§Ã£o."); }
+    setActionLoadingKey(loadingKey);
+    try {
+      await fn();
+      await loadData();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Falha na operação.");
+    } finally {
+      setActionLoadingKey(null);
+    }
   };
 
   useEffect(() => {
@@ -636,14 +662,14 @@ function App() {
       if (error) throw error;
       setGroupName("");
       setGroupCode("");
-    });
+    }, "create-group");
 
   const deleteGroup = (groupId: string) =>
     void runAdminAction(async () => {
       if (!currentWorkspaceId) return;
       const { error } = await supabase!.from("category_groups").delete().eq("workspace_id", currentWorkspaceId).eq("id", groupId);
       if (error) throw error;
-    });
+    }, `delete-group-${groupId}`);
 
   const createCategory = () =>
     void runAdminAction(async () => {
@@ -665,14 +691,14 @@ function App() {
       setCategoryName("");
       setCategoryCode("");
       setCategoryRecurring(false);
-    });
+    }, "create-category");
 
   const deleteCategory = (categoryIdToDelete: string) =>
     void runAdminAction(async () => {
       if (!currentWorkspaceId) return;
       const { error } = await supabase!.from("categories").delete().eq("workspace_id", currentWorkspaceId).eq("id", categoryIdToDelete);
       if (error) throw error;
-    });
+    }, `delete-category-${categoryIdToDelete}`);
 
   const createInvite = () =>
     void runAdminAction(async () => {
@@ -684,7 +710,7 @@ function App() {
         .upsert({ workspace_id: currentWorkspaceId, email, role: inviteRole }, { onConflict: "workspace_id,email" });
       if (error) throw error;
       setInviteEmail("");
-    });
+    }, "create-invite");
 
   const updateUserRole = (userId: string, nextRole: string) =>
     void runAdminAction(async () => {
@@ -695,7 +721,7 @@ function App() {
         .eq("workspace_id", currentWorkspaceId)
         .eq("user_id", userId);
       if (error) throw error;
-    });
+    }, `update-role-${userId}`);
 
   const toggleUserActive = (userId: string, currentActive: boolean) =>
     void runAdminAction(async () => {
@@ -706,11 +732,41 @@ function App() {
         .eq("workspace_id", currentWorkspaceId)
         .eq("user_id", userId);
       if (error) throw error;
-    });
+    }, `toggle-user-${userId}`);
 
-  if (!isSupabaseConfigured) return <div className="auth-shell"><section className="auth-card"><p>Configure o Supabase no .env</p></section></div>;
-  if (!sessionReady) return <div className="auth-shell"><section className="auth-card"><p>Carregando...</p></section></div>;
-  if (!currentUserId) return <Suspense fallback={<div className="auth-shell"><section className="auth-card"><p>Carregando...</p></section></div>}><AuthScreen /></Suspense>;
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card">
+          <LoadingCard label="Configure o Supabase no .env para iniciar." />
+        </section>
+      </div>
+    );
+  }
+  if (!sessionReady) {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card">
+          <LoadingCard label="Verificando sessão..." />
+        </section>
+      </div>
+    );
+  }
+  if (!currentUserId) {
+    return (
+      <Suspense
+        fallback={
+          <div className="auth-shell">
+            <section className="auth-card">
+              <LoadingCard label="Preparando autenticação..." />
+            </section>
+          </div>
+        }
+      >
+        <AuthScreen />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="shell">
@@ -743,7 +799,7 @@ function App() {
         {message ? <p className="feedback">{message}</p> : null}
 
         {page === "dashboard" ? (
-          <Suspense fallback={<p className="loading-note">Carregando dashboard...</p>}>
+          <Suspense fallback={<LoadingCard label="Carregando dashboard..." />}>
             <DashboardPage
               trendMode={trendMode}
               trendWindow={trendWindow}
@@ -761,7 +817,7 @@ function App() {
         ) : null}
 
         {page === "entries" ? (
-          <Suspense fallback={<p className="loading-note">Carregando lançamentos...</p>}>
+          <Suspense fallback={<LoadingCard label="Carregando lançamentos..." />}>
             <EntriesPage
               statusFilter={statusFilter}
               onChangeStatusFilter={setStatusFilter}
@@ -787,16 +843,18 @@ function App() {
                   .eq("workspace_id", currentWorkspaceId)
                   .eq("id", entry.id);
                 if (error) throw error;
-              })
+              }, `toggle-entry-${entry.id}`)
             }
             onDeleteEntry={(entry) =>
               void runAdminAction(async () => {
                 if (!currentWorkspaceId) return;
                 const { error } = await supabase!.from("entries").delete().eq("workspace_id", currentWorkspaceId).eq("id", entry.id);
                 if (error) throw error;
-              })
+              }, `delete-entry-${entry.id}`)
             }
               onSubmitEntry={submitEntry}
+              entrySubmitting={entrySubmitting}
+              actionLoadingKey={actionLoadingKey}
               onCancelEdit={() => {
                 setEditingEntryId(null);
                 setEntryForm(defaultEntryForm);
@@ -807,7 +865,7 @@ function App() {
         ) : null}
 
         {page === "settings" ? (
-          <Suspense fallback={<p className="loading-note">Carregando configurações...</p>}>
+          <Suspense fallback={<LoadingCard label="Carregando configurações..." />}>
             <SettingsPage
               settingsView={settingsView}
               isAdmin={isAdmin}
@@ -853,11 +911,16 @@ function App() {
               onCreateInvite={createInvite}
               onChangeUserRole={updateUserRole}
               onToggleUserActive={toggleUserActive}
+              actionLoadingKey={actionLoadingKey}
             />
           </Suspense>
         ) : null}
 
-        {loading ? <p className="loading-note">Atualizando dados...</p> : null}
+        {loading ? (
+          <p className="loading-note loading-inline">
+            <Spinner label="Atualizando dados..." compact />
+          </p>
+        ) : null}
       </div>
     </div>
   );
