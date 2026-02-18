@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { List, Pencil, Sheet, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Spinner } from "../../components/LoadingState";
@@ -68,6 +68,7 @@ export function EntriesPage({
   const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
 
   const monthClosed = !!period?.closed_at;
+  const importButtonRef = useRef<HTMLButtonElement>(null);
 
   const saveTransaction = useSaveTransaction();
   const toggleStatus = useToggleTransactionStatus();
@@ -76,6 +77,14 @@ export function EntriesPage({
   const imp = useImport(period, transactions, categories, groups, () =>
     qc.invalidateQueries()
   );
+
+  const prevModalOpen = useRef(false);
+  useEffect(() => {
+    if (prevModalOpen.current && !imp.importModalOpen) {
+      importButtonRef.current?.focus();
+    }
+    prevModalOpen.current = imp.importModalOpen;
+  }, [imp.importModalOpen]);
 
   const visibleEntries = useMemo(
     () => (statusFilter === "todos" ? transactions : transactions.filter((t) => t.status === statusFilter)),
@@ -332,6 +341,7 @@ export function EntriesPage({
                 </button>
               ) : null}
               <button
+                ref={importButtonRef}
                 type="button"
                 className="ghost-button"
                 onClick={imp.openModal}
@@ -348,6 +358,7 @@ export function EntriesPage({
         <ImportModal
           imp={imp}
           categories={categories}
+          groups={groups}
           canWrite={canWrite}
           monthClosed={monthClosed}
           formatBRL={formatBRL}

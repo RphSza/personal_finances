@@ -4,7 +4,7 @@ set -e
 
 JSON_MODE=false
 SHORT_NAME=""
-BRANCH_NUMBER=""
+BRANCH_DATE=""
 ARGS=()
 i=1
 while [ $i -le $# ]; do
@@ -27,31 +27,38 @@ while [ $i -le $# ]; do
             fi
             SHORT_NAME="$next_arg"
             ;;
-        --number)
+        --date)
             if [ $((i + 1)) -gt $# ]; then
-                echo 'Error: --number requires a value' >&2
+                echo 'Error: --date requires a value (YYYYMMDD)' >&2
                 exit 1
             fi
             i=$((i + 1))
             next_arg="${!i}"
             if [[ "$next_arg" == --* ]]; then
-                echo 'Error: --number requires a value' >&2
+                echo 'Error: --date requires a value (YYYYMMDD)' >&2
                 exit 1
             fi
-            BRANCH_NUMBER="$next_arg"
+            # Validate YYYYMMDD format
+            if ! echo "$next_arg" | grep -qE '^[0-9]{8}$'; then
+                echo 'Error: --date must be in YYYYMMDD format (e.g., 20260217)' >&2
+                exit 1
+            fi
+            BRANCH_DATE="$next_arg"
             ;;
         --help|-h)
-            echo "Usage: $0 [--json] [--short-name <name>] [--number N] <feature_description>"
+            echo "Usage: $0 [--json] [--short-name <name>] [--date YYYYMMDD] <feature_description>"
+            echo ""
+            echo "Naming convention: YYYYMMDD-feature-name (e.g., 20260217-importacao-acabamento)"
             echo ""
             echo "Options:"
             echo "  --json              Output in JSON format"
             echo "  --short-name <name> Provide a custom short name (2-4 words) for the branch"
-            echo "  --number N          Specify branch number manually (overrides auto-detection)"
+            echo "  --date YYYYMMDD     Specify date prefix manually (default: today)"
             echo "  --help, -h          Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0 'Add user authentication system' --short-name 'user-auth'"
-            echo "  $0 'Implement OAuth2 integration for API' --number 5"
+            echo "  $0 'Implement OAuth2 integration for API' --date 20260301"
             exit 0
             ;;
         *)
@@ -63,7 +70,7 @@ done
 
 FEATURE_DESCRIPTION="${ARGS[*]}"
 if [ -z "$FEATURE_DESCRIPTION" ]; then
-    echo "Usage: $0 [--json] [--short-name <name>] [--number N] <feature_description>" >&2
+    echo "Usage: $0 [--json] [--short-name <name>] [--date YYYYMMDD] <feature_description>" >&2
     exit 1
 fi
 
@@ -78,75 +85,6 @@ find_repo_root() {
         dir="$(dirname "$dir")"
     done
     return 1
-}
-
-# Function to get highest number from specs directory
-get_highest_from_specs() {
-    local specs_dir="$1"
-    local highest=0
-
-    if [ -d "$specs_dir" ]; then
-        for dir in "$specs_dir"/*; do
-            [ -d "$dir" ] || continue
-            dirname=$(basename "$dir")
-            number=$(echo "$dirname" | grep -o '^[0-9]\+' || echo "0")
-            number=$((10#$number))
-            if [ "$number" -gt "$highest" ]; then
-                highest=$number
-            fi
-        done
-    fi
-
-    echo "$highest"
-}
-
-# Function to get highest number from git branches
-get_highest_from_branches() {
-    local highest=0
-
-    # Get all branches (local and remote)
-    branches=$(git branch -a 2>/dev/null || echo "")
-
-    if [ -n "$branches" ]; then
-        while IFS= read -r branch; do
-            # Clean branch name: remove leading markers and remote prefixes
-            clean_branch=$(echo "$branch" | sed 's/^[* ]*//; s|^remotes/[^/]*/||')
-
-            # Extract feature number if branch matches pattern ###-*
-            if echo "$clean_branch" | grep -q '^[0-9]\{3\}-'; then
-                number=$(echo "$clean_branch" | grep -o '^[0-9]\{3\}' || echo "0")
-                number=$((10#$number))
-                if [ "$number" -gt "$highest" ]; then
-                    highest=$number
-                fi
-            fi
-        done <<< "$branches"
-    fi
-
-    echo "$highest"
-}
-
-# Function to check existing branches (local and remote) and return next available number
-check_existing_branches() {
-    local specs_dir="$1"
-
-    # Fetch all remotes to get latest branch info (suppress errors if no remotes)
-    git fetch --all --prune 2>/dev/null || true
-
-    # Get highest number from ALL branches (not just matching short name)
-    local highest_branch=$(get_highest_from_branches)
-
-    # Get highest number from ALL specs (not just matching short name)
-    local highest_spec=$(get_highest_from_specs "$specs_dir")
-
-    # Take the maximum of both
-    local max_num=$highest_branch
-    if [ "$highest_spec" -gt "$max_num" ]; then
-        max_num=$highest_spec
-    fi
-
-    # Return next number
-    echo $((max_num + 1))
 }
 
 # Function to clean and format a branch name
@@ -225,7 +163,7 @@ generate_branch_name() {
     fi
 }
 
-# Generate branch name
+# Generate branch name suffix
 if [ -n "$SHORT_NAME" ]; then
     # Use provided short name, just clean it up
     BRANCH_SUFFIX=$(clean_branch_name "$SHORT_NAME")
@@ -234,29 +172,19 @@ else
     BRANCH_SUFFIX=$(generate_branch_name "$FEATURE_DESCRIPTION")
 fi
 
-# Determine branch number
-if [ -z "$BRANCH_NUMBER" ]; then
-    if [ "$HAS_GIT" = true ]; then
-        # Check existing branches on remotes
-        BRANCH_NUMBER=$(check_existing_branches "$SPECS_DIR")
-    else
-        # Fall back to local directory check
-        HIGHEST=$(get_highest_from_specs "$SPECS_DIR")
-        BRANCH_NUMBER=$((HIGHEST + 1))
-    fi
+# Determine date prefix (default: today)
+if [ -z "$BRANCH_DATE" ]; then
+    BRANCH_DATE=$(date +%Y%m%d)
 fi
 
-# Force base-10 interpretation to prevent octal conversion (e.g., 010 -> 8 in octal, but should be 10 in decimal)
-FEATURE_NUM=$(printf "%03d" "$((10#$BRANCH_NUMBER))")
-BRANCH_NAME="${FEATURE_NUM}-${BRANCH_SUFFIX}"
+BRANCH_NAME="${BRANCH_DATE}-${BRANCH_SUFFIX}"
 
 # GitHub enforces a 244-byte limit on branch names
 # Validate and truncate if necessary
 MAX_BRANCH_LENGTH=244
 if [ ${#BRANCH_NAME} -gt $MAX_BRANCH_LENGTH ]; then
-    # Calculate how much we need to trim from suffix
-    # Account for: feature number (3) + hyphen (1) = 4 chars
-    MAX_SUFFIX_LENGTH=$((MAX_BRANCH_LENGTH - 4))
+    # Account for: date (8) + hyphen (1) = 9 chars
+    MAX_SUFFIX_LENGTH=$((MAX_BRANCH_LENGTH - 9))
 
     # Truncate suffix at word boundary if possible
     TRUNCATED_SUFFIX=$(echo "$BRANCH_SUFFIX" | cut -c1-$MAX_SUFFIX_LENGTH)
@@ -264,7 +192,7 @@ if [ ${#BRANCH_NAME} -gt $MAX_BRANCH_LENGTH ]; then
     TRUNCATED_SUFFIX=$(echo "$TRUNCATED_SUFFIX" | sed 's/-$//')
 
     ORIGINAL_BRANCH_NAME="$BRANCH_NAME"
-    BRANCH_NAME="${FEATURE_NUM}-${TRUNCATED_SUFFIX}"
+    BRANCH_NAME="${BRANCH_DATE}-${TRUNCATED_SUFFIX}"
 
     >&2 echo "[specify] Warning: Branch name exceeded GitHub's 244-byte limit"
     >&2 echo "[specify] Original: $ORIGINAL_BRANCH_NAME (${#ORIGINAL_BRANCH_NAME} bytes)"
@@ -288,10 +216,10 @@ if [ -f "$TEMPLATE" ]; then cp "$TEMPLATE" "$SPEC_FILE"; else touch "$SPEC_FILE"
 export SPECIFY_FEATURE="$BRANCH_NAME"
 
 if $JSON_MODE; then
-    printf '{"BRANCH_NAME":"%s","SPEC_FILE":"%s","FEATURE_NUM":"%s"}\n' "$BRANCH_NAME" "$SPEC_FILE" "$FEATURE_NUM"
+    printf '{"BRANCH_NAME":"%s","SPEC_FILE":"%s","BRANCH_DATE":"%s"}\n' "$BRANCH_NAME" "$SPEC_FILE" "$BRANCH_DATE"
 else
     echo "BRANCH_NAME: $BRANCH_NAME"
     echo "SPEC_FILE: $SPEC_FILE"
-    echo "FEATURE_NUM: $FEATURE_NUM"
+    echo "BRANCH_DATE: $BRANCH_DATE"
     echo "SPECIFY_FEATURE environment variable set to: $BRANCH_NAME"
 fi

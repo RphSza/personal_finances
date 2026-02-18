@@ -26,11 +26,14 @@ import type {
   TransactionType,
 } from "../types";
 
+export type ImportRowStatus = 'ok' | 'duplicada' | 'erro' | 'sem_categoria' | 'cancelada';
+
 export type ImportPreviewRow = ParsedImportRow & {
   dedupeKey: string;
   isDuplicate: boolean;
   categoryId: string;
   errorReason: string | null;
+  status: ImportRowStatus;
 };
 
 export function useImport(
@@ -54,6 +57,8 @@ export function useImport(
   const [importQuickCategoryName, setImportQuickCategoryName] = useState("");
   const [importQuickCategoryType, setImportQuickCategoryType] = useState<TransactionType>("expense");
   const [importQuickCategorySubmitting, setImportQuickCategorySubmitting] = useState(false);
+  const [importCompleted, setImportCompleted] = useState(false);
+  const [importSummary, setImportSummary] = useState({ imported: 0, duplicates: 0, errors: 0, cancelled: 0 });
 
   const clearPreview = useCallback(() => {
     setImportFileName("");
@@ -142,7 +147,14 @@ export function useImport(
             ? "Pagamento de fatura detectado e ignorado para evitar duplicidade."
             : row.description.trim() ? null : "Descricao obrigatoria";
           const categoryId = suggestCategoryId(categories, row.description, normalizedType, row.categoryHint);
-          return { ...row, type: normalizedType, dedupeKey, isDuplicate: duplicate, categoryId, errorReason };
+          const status: ImportRowStatus = errorReason
+            ? 'erro'
+            : duplicate
+              ? 'duplicada'
+              : !categoryId
+                ? 'sem_categoria'
+                : 'ok';
+          return { ...row, type: normalizedType, dedupeKey, isDuplicate: duplicate, categoryId, errorReason, status };
         });
 
         for (const row of preview) {
@@ -154,6 +166,11 @@ export function useImport(
           }
         }
 
+        if (preview.length === 0) {
+          setImportModalFeedback("Arquivo vazio ou sem dados validos.");
+          setImportParsing(false);
+          return;
+        }
         setImportFileName(file.name);
         setImportPreviewRows(preview);
       } catch (error) {
@@ -165,9 +182,23 @@ export function useImport(
     [buildExistingDedupeSet, categories, clearPreview, ensureFallbackCategory, canWrite, period]
   );
 
+  const changeRowStatus = useCallback((rowIndex: number, dedupeKey: string, newStatus: ImportRowStatus) => {
+    setImportPreviewRows((current) =>
+      current.map((row) => {
+        if (row.rowIndex !== rowIndex || row.dedupeKey !== dedupeKey) return row;
+        if (row.status === 'erro') return row;
+        return { ...row, status: newStatus };
+      })
+    );
+  }, []);
+
   const changeRowCategory = useCallback((rowIndex: number, dedupeKey: string, categoryId: string) => {
     setImportPreviewRows((current) =>
-      current.map((row) => (row.rowIndex === rowIndex && row.dedupeKey === dedupeKey ? { ...row, categoryId } : row))
+      current.map((row) => {
+        if (row.rowIndex !== rowIndex || row.dedupeKey !== dedupeKey) return row;
+        const newStatus = row.status === 'sem_categoria' && categoryId ? 'ok' : row.status;
+        return { ...row, categoryId, status: newStatus };
+      })
     );
   }, []);
 
@@ -206,7 +237,11 @@ export function useImport(
         onCategoriesChanged();
         setImportQuickCategoryName("");
         setImportPreviewRows((current) =>
-          current.map((row) => (row.type === importQuickCategoryType && !row.categoryId ? { ...row, categoryId: data.id } : row))
+          current.map((row) => {
+            if (row.type !== importQuickCategoryType || row.categoryId) return row;
+            const newStatus = row.status === 'sem_categoria' ? 'ok' : row.status;
+            return { ...row, categoryId: data.id, status: newStatus };
+          })
         );
         setImportModalFeedback(`Categoria "${name}" criada com sucesso.`);
       } catch (error) {
@@ -221,7 +256,7 @@ export function useImport(
     mutationFn: async () => {
       if (!supabase || !workspaceId || !userId || !period || !canWrite) return;
       if (period.closed_at) { setImportModalFeedback("Competencia fechada."); return; }
-      const validRows = importPreviewRows.filter((row) => !row.isDuplicate && !row.errorReason && !!row.categoryId);
+      const validRows = importPreviewRows.filter((row) => row.status === 'ok' && !!row.categoryId);
       if (!validRows.length) { setImportModalFeedback("Nenhuma linha valida para importar."); return; }
 
       setImportSubmitting(true);
@@ -230,8 +265,8 @@ export function useImport(
         const summary = {
           total_rows: importPreviewRows.length,
           valid_rows: validRows.length,
-          duplicate_rows: importPreviewRows.filter((row) => row.isDuplicate).length,
-          error_rows: importPreviewRows.filter((row) => !!row.errorReason).length,
+          duplicate_rows: importPreviewRows.filter((row) => row.status === 'duplicada').length,
+          error_rows: importPreviewRows.filter((row) => row.status === 'erro').length,
         };
         const { data: job, error: jobError } = await supabase
           .from("import_jobs")
@@ -290,9 +325,15 @@ export function useImport(
           .update({ status: "completed", imported_rows: created?.length ?? entriesPayload.length, completed_at: new Date().toISOString() })
           .eq("id", job.id);
 
-        clearPreview();
+        setImportSummary({
+          imported: created?.length ?? entriesPayload.length,
+          duplicates: importPreviewRows.filter((r) => r.status === 'duplicada').length,
+          errors: importPreviewRows.filter((r) => r.status === 'erro').length,
+          cancelled: importPreviewRows.filter((r) => r.status === 'cancelada').length,
+        });
+        setImportCompleted(true);
         qc.invalidateQueries();
-        setImportModalFeedback(`Importacao concluida: ${entriesPayload.length} lancamentos adicionados.`);
+        setImportModalFeedback("");
       } catch (error) {
         setImportModalFeedback(error instanceof Error ? error.message : "Falha ao confirmar importacao.");
       } finally {
@@ -300,6 +341,19 @@ export function useImport(
       }
     },
   });
+
+  const importTotal = importPreviewRows.length;
+  const importReady = importPreviewRows.filter((r) => r.status === 'ok' && !!r.categoryId).length;
+  const importDuplicates = importPreviewRows.filter((r) => r.status === 'duplicada').length;
+  const importErrors = importPreviewRows.filter((r) => r.status === 'erro').length;
+  const importMissingCategory = importPreviewRows.filter((r) => r.status === 'sem_categoria').length;
+  const importCancelled = importPreviewRows.filter((r) => r.status === 'cancelada').length;
+
+  const resetImport = useCallback(() => {
+    setImportCompleted(false);
+    setImportSummary({ imported: 0, duplicates: 0, errors: 0, cancelled: 0 });
+    clearPreview();
+  }, [clearPreview]);
 
   return {
     importFormat,
@@ -312,11 +366,21 @@ export function useImport(
     importQuickCategoryName,
     importQuickCategoryType,
     importQuickCategorySubmitting,
-    openModal: () => { setImportModalFeedback(""); setImportModalOpen(true); },
+    importCompleted,
+    importSummary,
+    importTotal,
+    importReady,
+    importDuplicates,
+    importErrors,
+    importMissingCategory,
+    importCancelled,
+    openModal: () => { setImportModalFeedback(""); setImportCompleted(false); setImportModalOpen(true); },
     closeModal: () => { setImportModalFeedback(""); setImportModalOpen(false); },
     previewFile,
     changeRowCategory,
+    changeRowStatus,
     clearPreview,
+    resetImport,
     setImportQuickCategoryName,
     setImportQuickCategoryType,
     createQuickCategory: () => createQuickCategoryMutation.mutate(),

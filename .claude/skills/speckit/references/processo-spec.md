@@ -1,28 +1,28 @@
-# Processo de evolução de specs
+# Processo de evolucao de specs
 
 ## Passo 1: Entender o pedido
-- Confirmar objetivo de negócio.
-- Mapear impacto em módulos existentes.
+- Confirmar objetivo de negocio.
+- Mapear impacto em modulos existentes.
 
 ## Passo 2: Localizar documentos afetados
 - Produto
 - Arquitetura
 - Dados
-- Segurança/LGPD
-- Integrações
+- Seguranca/LGPD
+- Integracoes
 - Roadmap
 
 ## Passo 3: Atualizar com rastreabilidade
-- Registrar decisão principal.
+- Registrar decisao principal.
 - Explicitar trade-offs.
-- Definir critério de aceite verificável.
+- Definir criterio de aceite verificavel.
 
 ## Passo 4: Planejar entrega incremental
 - Dividir em fases.
-- Definir dependências.
+- Definir dependencias.
 - Classificar risco.
 
-## Passo 5: Revisão final
-- Coerência entre docs.
-- Ausência de lacunas críticas.
-- Próximos passos claros.
+## Passo 5: Revisao final
+- Coerencia entre docs.
+- Ausencia de lacunas criticas.
+- Proximos passos claros.
