@@ -85,8 +85,26 @@ Antes de tarefas relevantes de evolucao funcional, tecnica ou estrategica, consu
 
 ## Skills Available
 
-- `speckit`:
-  documentacao e especificacao de produto, arquitetura, dados, seguranca, integracoes e roadmap.
+- `speckit`: documentacao e especificacao de produto, arquitetura, dados, seguranca, integracoes e roadmap.
+
+### Speckit Commands
+
+| Command | Description |
+|---------|-------------|
+| `/speckit.specify <description>` | Create a new feature spec (branch + directory + filled spec.md) |
+| `/speckit.plan` | Create implementation plan for current feature (requires spec.md) |
+| `/speckit.tasks` | Generate task list for current feature (requires spec.md + plan.md) |
+| `/speckit.implement [task_id]` | Execute implementation from task list, writing actual code |
+| `/speckit.clarify` | Review spec for ambiguities, gaps, and open questions |
+| `/speckit.analyse <topic>` | Deep analysis of a topic, feature area, or codebase concern |
+| `/speckit.checklist [type]` | Generate checklist: review, release, security, accessibility |
+| `/speckit.constitution [action]` | View, check compliance, or amend the project constitution |
+
+Main workflow: `/speckit.specify` → `/speckit.clarify` → `/speckit.plan` → `/speckit.tasks` → `/speckit.implement`
+
+Support commands: `/speckit.analyse`, `/speckit.checklist`, `/speckit.constitution`
+
+Feature naming convention: `YYYYMMDD-feature-name` (e.g., `20260217-import-finishing`).
 
 ## PR Checklist
 

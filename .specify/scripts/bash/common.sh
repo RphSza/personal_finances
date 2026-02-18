@@ -26,7 +26,7 @@ get_current_branch() {
         return
     fi
 
-    # For non-git repos, try to find the latest feature directory
+    # For non-git repos, try to find the latest feature directory (by YYYYMMDD prefix)
     local repo_root=$(get_repo_root)
     local specs_dir="$repo_root/specs"
 
@@ -37,7 +37,7 @@ get_current_branch() {
         for dir in "$specs_dir"/*; do
             if [[ -d "$dir" ]]; then
                 local dirname=$(basename "$dir")
-                if [[ "$dirname" =~ ^([0-9]{3})- ]]; then
+                if [[ "$dirname" =~ ^([0-9]{8})- ]]; then
                     local number=${BASH_REMATCH[1]}
                     number=$((10#$number))
                     if [[ "$number" -gt "$highest" ]]; then
@@ -72,9 +72,9 @@ check_feature_branch() {
         return 0
     fi
 
-    if [[ ! "$branch" =~ ^[0-9]{3}- ]]; then
+    if [[ ! "$branch" =~ ^[0-9]{8}- ]]; then
         echo "ERROR: Not on a feature branch. Current branch: $branch" >&2
-        echo "Feature branches should be named like: 001-feature-name" >&2
+        echo "Feature branches should be named like: YYYYMMDD-feature-name (e.g., 20260217-importacao-acabamento)" >&2
         return 1
     fi
 
@@ -83,16 +83,16 @@ check_feature_branch() {
 
 get_feature_dir() { echo "$1/specs/$2"; }
 
-# Find feature directory by numeric prefix instead of exact branch match
-# This allows multiple branches to work on the same spec (e.g., 004-fix-bug, 004-add-feature)
+# Find feature directory by date prefix instead of exact branch match
+# This allows multiple branches to work on the same spec (e.g., 20260217-fix-bug, 20260217-add-feature)
 find_feature_dir_by_prefix() {
     local repo_root="$1"
     local branch_name="$2"
     local specs_dir="$repo_root/specs"
 
-    # Extract numeric prefix from branch (e.g., "004" from "004-whatever")
-    if [[ ! "$branch_name" =~ ^([0-9]{3})- ]]; then
-        # If branch doesn't have numeric prefix, fall back to exact match
+    # Extract YYYYMMDD prefix from branch (e.g., "20260217" from "20260217-whatever")
+    if [[ ! "$branch_name" =~ ^([0-9]{8})- ]]; then
+        # If branch doesn't have date prefix, fall back to exact match
         echo "$specs_dir/$branch_name"
         return
     fi
@@ -117,10 +117,14 @@ find_feature_dir_by_prefix() {
         # Exactly one match - perfect!
         echo "$specs_dir/${matches[0]}"
     else
-        # Multiple matches - this shouldn't happen with proper naming convention
-        echo "ERROR: Multiple spec directories found with prefix '$prefix': ${matches[*]}" >&2
-        echo "Please ensure only one spec directory exists per numeric prefix." >&2
-        echo "$specs_dir/$branch_name"  # Return something to avoid breaking the script
+        # Multiple matches - pick the one that matches the full branch name, or the first
+        for match in "${matches[@]}"; do
+            if [[ "$match" == "$branch_name" ]]; then
+                echo "$specs_dir/$match"
+                return
+            fi
+        done
+        echo "$specs_dir/${matches[0]}"
     fi
 }
 
