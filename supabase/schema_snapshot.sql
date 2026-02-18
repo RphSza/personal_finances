@@ -1,117 +1,17 @@
-create type public.entry_status as enum ('previsto', 'realizado', 'cancelado');
+-- ============================================================
+-- Personal Finances SaaS — Schema Snapshot (v2 - English)
+-- Run this FIRST, then migrations S2 → S3 → S4 in order.
+-- ============================================================
 
-create type public.entry_type as enum ('receita', 'despesa', 'investimento');
+-- Enums
+create type public.transaction_type as enum ('income', 'expense', 'investment');
+create type public.transaction_status as enum ('planned', 'settled', 'cancelled');
+create type public.recurrence_freq as enum ('monthly', 'yearly');
+create type public.workspace_role as enum ('owner', 'admin', 'member', 'viewer');
 
-create type public.recurrence_freq as enum ('mensal', 'anual');
-
-create table public.categories (
-  id uuid default gen_random_uuid() not null,
-  group_id uuid not null,
-  code text not null,
-  name text not null,
-  default_type entry_type not null,
-  default_is_recurring boolean default false not null,
-  active boolean default true not null,
-  sort_order integer default 0 not null,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null,
-  workspace_id uuid not null
-);
-
-create table public.category_groups (
-  id uuid default gen_random_uuid() not null,
-  code text not null,
-  name text not null,
-  sort_order integer default 0 not null,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null,
-  workspace_id uuid not null
-);
-
-create table public.entries (
-  id uuid default gen_random_uuid() not null,
-  month_id uuid not null,
-  category_id uuid not null,
-  description text not null,
-  amount numeric(14,2) not null,
-  type entry_type not null,
-  status entry_status default 'previsto'::entry_status not null,
-  is_recurring boolean default false not null,
-  planned_date date,
-  realized_at date,
-  color_hint text,
-  notes text,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null,
-  workspace_id uuid not null
-);
-
-create table public.monthly_balances (
-  month_id uuid not null,
-  receita_total numeric(14,2) default 0 not null,
-  despesa_total numeric(14,2) default 0 not null,
-  despesa_recorrente numeric(14,2) default 0 not null,
-  investimento_total numeric(14,2) default 0 not null,
-  resultado_mes numeric(14,2) default 0 not null,
-  resultado_anterior numeric(14,2) default 0 not null,
-  resultado_acumulado numeric(14,2) default 0 not null,
-  calculated_at timestamp with time zone default now() not null,
-  workspace_id uuid not null
-);
-
-create table public.months (
-  id uuid default gen_random_uuid() not null,
-  month_start date not null,
-  month_end date generated always as (((month_start + '1 mon -1 days'::interval))::date) stored,
-  closed_at timestamp with time zone,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null,
-  workspace_id uuid not null
-);
-
-create table public.recurrence_rules (
-  id uuid default gen_random_uuid() not null,
-  category_id uuid not null,
-  description text not null,
-  amount numeric(14,2) not null,
-  type entry_type not null,
-  freq recurrence_freq default 'mensal'::recurrence_freq not null,
-  day_of_month integer default 1 not null,
-  start_month date not null,
-  end_month date,
-  active boolean default true not null,
-  notes text,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null,
-  workspace_id uuid not null
-);
-
-create table public.user_invites (
-  id uuid default gen_random_uuid() not null,
-  email text not null,
-  role text not null,
-  created_at timestamp with time zone default now() not null,
-  accepted_at timestamp with time zone,
-  workspace_id uuid not null
-);
-
-create table public.user_profiles (
-  id uuid not null,
-  email text,
-  role text default 'viewer'::text not null,
-  active boolean default true not null,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null
-);
-
-create table public.workspace_members (
-  workspace_id uuid not null,
-  user_id uuid not null,
-  role text not null,
-  active boolean default true not null,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null
-);
+-- ============================================================
+-- Tables
+-- ============================================================
 
 create table public.workspaces (
   id uuid default gen_random_uuid() not null,
@@ -119,350 +19,712 @@ create table public.workspaces (
   slug text,
   status text default 'active'::text not null,
   created_by uuid,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
-alter table public.categories add constraint categories_group_id_fkey FOREIGN KEY (group_id) REFERENCES category_groups(id) ON DELETE RESTRICT;
+create table public.user_profiles (
+  id uuid not null,
+  email text,
+  role text default 'client'::text not null,
+  active boolean default true not null,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
 
-alter table public.categories add constraint categories_pkey PRIMARY KEY (id);
+create table public.workspace_members (
+  workspace_id uuid not null,
+  user_id uuid not null,
+  role workspace_role not null,
+  active boolean default true not null,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
 
-alter table public.categories add constraint categories_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+create table public.workspace_invites (
+  id uuid default gen_random_uuid() not null,
+  email text not null,
+  role workspace_role not null,
+  created_at timestamptz default now() not null,
+  accepted_at timestamptz,
+  workspace_id uuid not null
+);
 
-alter table public.category_groups add constraint category_groups_pkey PRIMARY KEY (id);
+create table public.groups (
+  id uuid default gen_random_uuid() not null,
+  workspace_id uuid,
+  code text not null,
+  name text not null,
+  sort_order integer default 0 not null,
+  created_by uuid,
+  deleted_at timestamptz,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
 
-alter table public.category_groups add constraint category_groups_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+create table public.categories (
+  id uuid default gen_random_uuid() not null,
+  group_id uuid not null,
+  workspace_id uuid,
+  code text not null,
+  name text not null,
+  default_type transaction_type not null,
+  default_is_recurring boolean default false not null,
+  sort_order integer default 0 not null,
+  created_by uuid,
+  deleted_at timestamptz,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
 
-alter table public.entries add constraint entries_amount_check CHECK (amount >= 0::numeric);
+create table public.fiscal_periods (
+  id uuid default gen_random_uuid() not null,
+  workspace_id uuid not null,
+  period_start date not null,
+  period_end date generated always as (((period_start + '1 mon -1 days'::interval))::date) stored,
+  closed_at timestamptz,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
 
-alter table public.entries add constraint entries_category_id_fkey FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT;
+create table public.transactions (
+  id uuid default gen_random_uuid() not null,
+  period_id uuid not null,
+  workspace_id uuid not null,
+  category_id uuid not null,
+  description text not null,
+  amount numeric(14,2) not null,
+  type transaction_type not null,
+  status transaction_status default 'planned'::transaction_status not null,
+  is_recurring boolean default false not null,
+  planned_date date,
+  settled_at date,
+  notes text,
+  created_by uuid,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null,
+  recurrence_materialization_key text
+);
 
-alter table public.entries add constraint entries_month_id_fkey FOREIGN KEY (month_id) REFERENCES months(id) ON DELETE CASCADE;
+create table public.recurrences (
+  id uuid default gen_random_uuid() not null,
+  workspace_id uuid not null,
+  category_id uuid not null,
+  description text not null,
+  amount numeric(14,2) not null,
+  type transaction_type not null,
+  frequency recurrence_freq default 'monthly'::recurrence_freq not null,
+  day_of_month integer default 1 not null,
+  start_month date not null,
+  end_month date,
+  active boolean default true not null,
+  notes text,
+  created_by uuid,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
 
-alter table public.entries add constraint entries_pkey PRIMARY KEY (id);
+create table public.period_balances (
+  period_id uuid not null,
+  workspace_id uuid not null,
+  income_total numeric(14,2) default 0 not null,
+  expense_total numeric(14,2) default 0 not null,
+  recurring_expense numeric(14,2) default 0 not null,
+  investment_total numeric(14,2) default 0 not null,
+  net_result numeric(14,2) default 0 not null,
+  prior_balance numeric(14,2) default 0 not null,
+  cumulative_balance numeric(14,2) default 0 not null,
+  calculated_at timestamptz default now() not null
+);
 
-alter table public.entries add constraint entries_realized_date_chk CHECK (status = 'realizado'::entry_status AND realized_at IS NOT NULL OR status <> 'realizado'::entry_status);
+create table public.audit_events (
+  id uuid default gen_random_uuid() not null,
+  workspace_id uuid not null,
+  period_id uuid,
+  event_type text not null,
+  event_key text not null,
+  payload jsonb default '{}'::jsonb not null,
+  created_by uuid,
+  created_at timestamptz default now() not null
+);
 
-alter table public.entries add constraint entries_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+create table public.import_jobs (
+  id uuid default gen_random_uuid() not null,
+  workspace_id uuid not null,
+  period_id uuid not null,
+  created_by uuid not null,
+  source_format text not null,
+  file_name text not null,
+  status text default 'processing'::text not null,
+  total_rows integer default 0 not null,
+  valid_rows integer default 0 not null,
+  duplicate_rows integer default 0 not null,
+  error_rows integer default 0 not null,
+  imported_rows integer default 0 not null,
+  completed_at timestamptz,
+  created_at timestamptz default now() not null
+);
 
-alter table public.monthly_balances add constraint monthly_balances_month_id_fkey FOREIGN KEY (month_id) REFERENCES months(id) ON DELETE CASCADE;
+create table public.import_job_rows (
+  id uuid default gen_random_uuid() not null,
+  workspace_id uuid not null,
+  job_id uuid not null,
+  period_id uuid not null,
+  category_id uuid,
+  row_index integer not null,
+  description text not null,
+  amount numeric(14,2) not null,
+  type transaction_type not null,
+  occurrence_date date,
+  dedupe_key text not null,
+  is_duplicate boolean default false not null,
+  is_error boolean default false not null,
+  error_reason text,
+  raw_payload jsonb default '{}'::jsonb not null,
+  created_at timestamptz default now() not null
+);
 
-alter table public.monthly_balances add constraint monthly_balances_pkey PRIMARY KEY (month_id);
+-- ============================================================
+-- Primary Keys
+-- ============================================================
 
-alter table public.monthly_balances add constraint monthly_balances_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+alter table public.workspaces add constraint workspaces_pkey primary key (id);
+alter table public.user_profiles add constraint user_profiles_pkey primary key (id);
+alter table public.workspace_members add constraint workspace_members_pkey primary key (workspace_id, user_id);
+alter table public.workspace_invites add constraint workspace_invites_pkey primary key (id);
+alter table public.groups add constraint groups_pkey primary key (id);
+alter table public.categories add constraint categories_pkey primary key (id);
+alter table public.fiscal_periods add constraint fiscal_periods_pkey primary key (id);
+alter table public.transactions add constraint transactions_pkey primary key (id);
+alter table public.recurrences add constraint recurrences_pkey primary key (id);
+alter table public.period_balances add constraint period_balances_pkey primary key (period_id);
+alter table public.audit_events add constraint audit_events_pkey primary key (id);
+alter table public.import_jobs add constraint import_jobs_pkey primary key (id);
+alter table public.import_job_rows add constraint import_job_rows_pkey primary key (id);
 
-alter table public.months add constraint months_first_day_chk CHECK (month_start = date_trunc('month'::text, month_start::timestamp with time zone)::date);
+-- ============================================================
+-- Foreign Keys
+-- ============================================================
 
-alter table public.months add constraint months_pkey PRIMARY KEY (id);
+-- workspaces
+alter table public.workspaces add constraint workspaces_created_by_fkey
+  foreign key (created_by) references auth.users(id);
 
-alter table public.months add constraint months_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+-- user_profiles
+alter table public.user_profiles add constraint user_profiles_id_fkey
+  foreign key (id) references auth.users(id) on delete cascade;
 
-alter table public.recurrence_rules add constraint recurrence_end_month_chk CHECK (end_month IS NULL OR end_month = date_trunc('month'::text, end_month::timestamp with time zone)::date);
+-- workspace_members
+alter table public.workspace_members add constraint workspace_members_workspace_id_fkey
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.workspace_members add constraint workspace_members_user_id_fkey
+  foreign key (user_id) references auth.users(id) on delete cascade;
 
-alter table public.recurrence_rules add constraint recurrence_period_chk CHECK (end_month IS NULL OR end_month >= start_month);
+-- workspace_invites
+alter table public.workspace_invites add constraint workspace_invites_workspace_fk
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
 
-alter table public.recurrence_rules add constraint recurrence_rules_amount_check CHECK (amount >= 0::numeric);
+-- groups
+alter table public.groups add constraint groups_workspace_fk
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.groups add constraint groups_created_by_fkey
+  foreign key (created_by) references auth.users(id);
 
-alter table public.recurrence_rules add constraint recurrence_rules_category_id_fkey FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE;
+-- categories
+alter table public.categories add constraint categories_group_id_fkey
+  foreign key (group_id) references groups(id) on delete restrict;
+alter table public.categories add constraint categories_workspace_fk
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.categories add constraint categories_created_by_fkey
+  foreign key (created_by) references auth.users(id);
 
-alter table public.recurrence_rules add constraint recurrence_rules_day_of_month_check CHECK (day_of_month >= 1 AND day_of_month <= 31);
+-- fiscal_periods
+alter table public.fiscal_periods add constraint fiscal_periods_workspace_fk
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
 
-alter table public.recurrence_rules add constraint recurrence_rules_pkey PRIMARY KEY (id);
+-- transactions
+alter table public.transactions add constraint transactions_period_id_fkey
+  foreign key (period_id) references fiscal_periods(id) on delete cascade;
+alter table public.transactions add constraint transactions_category_id_fkey
+  foreign key (category_id) references categories(id) on delete restrict;
+alter table public.transactions add constraint transactions_workspace_fk
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.transactions add constraint transactions_created_by_fkey
+  foreign key (created_by) references auth.users(id);
 
-alter table public.recurrence_rules add constraint recurrence_rules_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+-- recurrences
+alter table public.recurrences add constraint recurrences_category_id_fkey
+  foreign key (category_id) references categories(id) on delete cascade;
+alter table public.recurrences add constraint recurrences_workspace_fk
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.recurrences add constraint recurrences_created_by_fkey
+  foreign key (created_by) references auth.users(id);
 
-alter table public.recurrence_rules add constraint recurrence_start_month_chk CHECK (start_month = date_trunc('month'::text, start_month::timestamp with time zone)::date);
+-- period_balances
+alter table public.period_balances add constraint period_balances_period_id_fkey
+  foreign key (period_id) references fiscal_periods(id) on delete cascade;
+alter table public.period_balances add constraint period_balances_workspace_fk
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
 
-alter table public.user_invites add constraint user_invites_pkey PRIMARY KEY (id);
+-- audit_events
+alter table public.audit_events add constraint audit_events_workspace_id_fkey
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.audit_events add constraint audit_events_period_id_fkey
+  foreign key (period_id) references fiscal_periods(id) on delete set null;
+alter table public.audit_events add constraint audit_events_created_by_fkey
+  foreign key (created_by) references auth.users(id);
 
-alter table public.user_invites add constraint user_invites_role_check CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+-- import_jobs
+alter table public.import_jobs add constraint import_jobs_workspace_id_fkey
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.import_jobs add constraint import_jobs_period_id_fkey
+  foreign key (period_id) references fiscal_periods(id) on delete cascade;
+alter table public.import_jobs add constraint import_jobs_created_by_fkey
+  foreign key (created_by) references auth.users(id);
 
-alter table public.user_invites add constraint user_invites_workspace_fk FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+-- import_job_rows
+alter table public.import_job_rows add constraint import_job_rows_workspace_id_fkey
+  foreign key (workspace_id) references workspaces(id) on delete cascade;
+alter table public.import_job_rows add constraint import_job_rows_job_id_fkey
+  foreign key (job_id) references import_jobs(id) on delete cascade;
+alter table public.import_job_rows add constraint import_job_rows_period_id_fkey
+  foreign key (period_id) references fiscal_periods(id) on delete cascade;
+alter table public.import_job_rows add constraint import_job_rows_category_id_fkey
+  foreign key (category_id) references categories(id) on delete set null;
 
-alter table public.user_profiles add constraint user_profiles_email_key UNIQUE (email);
+-- ============================================================
+-- Check Constraints
+-- ============================================================
 
-alter table public.user_profiles add constraint user_profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+alter table public.workspaces add constraint workspaces_status_check
+  check (status = any (array['active'::text, 'inactive'::text]));
+alter table public.workspaces add constraint workspaces_slug_key unique (slug);
 
-alter table public.user_profiles add constraint user_profiles_pkey PRIMARY KEY (id);
+alter table public.user_profiles add constraint user_profiles_email_key unique (email);
+alter table public.user_profiles add constraint user_profiles_role_check
+  check (role = any (array['internal'::text, 'client'::text]));
 
-alter table public.user_profiles add constraint user_profiles_role_check CHECK (role = ANY (ARRAY['admin'::text, 'viewer'::text]));
+alter table public.fiscal_periods add constraint fiscal_periods_first_day_chk
+  check (period_start = date_trunc('month'::text, period_start::timestamp with time zone)::date);
 
-alter table public.workspace_members add constraint workspace_members_pkey PRIMARY KEY (workspace_id, user_id);
+alter table public.transactions add constraint transactions_amount_check
+  check (amount >= 0::numeric);
+alter table public.transactions add constraint transactions_settled_date_chk
+  check (status = 'settled'::transaction_status and settled_at is not null
+      or status <> 'settled'::transaction_status);
 
-alter table public.workspace_members add constraint workspace_members_role_check CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+alter table public.recurrences add constraint recurrences_amount_check
+  check (amount >= 0::numeric);
+alter table public.recurrences add constraint recurrences_day_of_month_check
+  check (day_of_month >= 1 and day_of_month <= 31);
+alter table public.recurrences add constraint recurrences_start_month_chk
+  check (start_month = date_trunc('month'::text, start_month::timestamp with time zone)::date);
+alter table public.recurrences add constraint recurrences_end_month_chk
+  check (end_month is null or end_month = date_trunc('month'::text, end_month::timestamp with time zone)::date);
+alter table public.recurrences add constraint recurrences_period_chk
+  check (end_month is null or end_month >= start_month);
 
-alter table public.workspace_members add constraint workspace_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+alter table public.import_jobs add constraint import_jobs_source_format_check
+  check (source_format = any (array['csv'::text, 'ofx'::text]));
+alter table public.import_jobs add constraint import_jobs_status_check
+  check (status = any (array['processing'::text, 'completed'::text, 'failed'::text]));
 
-alter table public.workspace_members add constraint workspace_members_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+alter table public.import_job_rows add constraint import_job_rows_row_index_check
+  check (row_index > 0);
+alter table public.import_job_rows add constraint import_job_rows_amount_check
+  check (amount >= 0::numeric);
 
-alter table public.workspaces add constraint workspaces_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+-- ============================================================
+-- Indexes
+-- ============================================================
 
-alter table public.workspaces add constraint workspaces_pkey PRIMARY KEY (id);
+-- groups
+create index idx_groups_workspace on public.groups using btree (workspace_id);
+create index idx_groups_deleted_at on public.groups using btree (deleted_at);
 
-alter table public.workspaces add constraint workspaces_slug_key UNIQUE (slug);
+-- categories
+create index idx_categories_workspace on public.categories using btree (workspace_id);
+create index idx_categories_deleted_at on public.categories using btree (deleted_at);
 
-alter table public.workspaces add constraint workspaces_status_check CHECK (status = ANY (ARRAY['active'::text, 'inactive'::text]));
+-- fiscal_periods
+create unique index uq_fiscal_periods_workspace_start on public.fiscal_periods using btree (workspace_id, period_start);
 
-CREATE INDEX idx_categories_workspace ON public.categories USING btree (workspace_id);
+-- transactions
+create index idx_transactions_category on public.transactions using btree (category_id);
+create index idx_transactions_period on public.transactions using btree (period_id);
+create index idx_transactions_period_status on public.transactions using btree (period_id, status);
+create index idx_transactions_period_type on public.transactions using btree (period_id, type);
+create index idx_transactions_status on public.transactions using btree (status);
+create index idx_transactions_type on public.transactions using btree (type);
+create index idx_transactions_workspace_period on public.transactions using btree (workspace_id, period_id);
+create unique index uq_transactions_workspace_recurrence_key on public.transactions using btree (workspace_id, recurrence_materialization_key)
+  where (recurrence_materialization_key is not null);
 
-CREATE INDEX idx_category_groups_workspace ON public.category_groups USING btree (workspace_id);
+-- recurrences
+create index idx_recurrences_active_period on public.recurrences using btree (active, start_month, end_month);
+create index idx_recurrences_workspace on public.recurrences using btree (workspace_id, active);
 
-CREATE INDEX idx_entries_category ON public.entries USING btree (category_id);
+-- audit_events
+create index idx_audit_events_workspace_type_created on public.audit_events using btree (workspace_id, event_type, created_at desc);
+create unique index uq_audit_events_workspace_key on public.audit_events using btree (workspace_id, event_key);
 
-CREATE INDEX idx_entries_month ON public.entries USING btree (month_id);
+-- workspace_invites
+create unique index uq_workspace_invites_workspace_email on public.workspace_invites using btree (workspace_id, lower(email));
 
-CREATE INDEX idx_entries_month_status ON public.entries USING btree (month_id, status);
+-- import_jobs
+create index idx_import_jobs_workspace_created on public.import_jobs using btree (workspace_id, created_at desc);
+create index idx_import_jobs_workspace_period on public.import_jobs using btree (workspace_id, period_id, created_at desc);
 
-CREATE INDEX idx_entries_month_type ON public.entries USING btree (month_id, type);
+-- import_job_rows
+create index idx_import_job_rows_job on public.import_job_rows using btree (job_id, row_index);
+create index idx_import_job_rows_workspace_dedupe on public.import_job_rows using btree (workspace_id, dedupe_key);
 
-CREATE INDEX idx_entries_status ON public.entries USING btree (status);
+-- ============================================================
+-- Views
+-- ============================================================
 
-CREATE INDEX idx_entries_type ON public.entries USING btree (type);
+create or replace view public.v_period_totals as
+select
+  fp.workspace_id,
+  fp.id as period_id,
+  fp.period_start,
+  coalesce(sum(case when t.type = 'income'::transaction_type and t.status <> 'cancelled'::transaction_status then t.amount end), 0::numeric) as income_total,
+  coalesce(sum(case when t.type = 'expense'::transaction_type and t.status <> 'cancelled'::transaction_status then t.amount end), 0::numeric) as expense_total,
+  coalesce(sum(case when t.type = 'expense'::transaction_type and t.is_recurring and t.status <> 'cancelled'::transaction_status then t.amount end), 0::numeric) as recurring_expense,
+  coalesce(sum(case when t.type = 'investment'::transaction_type and t.status <> 'cancelled'::transaction_status then t.amount end), 0::numeric) as investment_total,
+  coalesce(sum(case when t.type = 'income'::transaction_type and t.status <> 'cancelled'::transaction_status then t.amount end), 0::numeric)
+    - coalesce(sum(case when t.type in ('expense'::transaction_type, 'investment'::transaction_type) and t.status <> 'cancelled'::transaction_status then t.amount end), 0::numeric) as net_result
+from fiscal_periods fp
+  left join transactions t on t.period_id = fp.id and t.workspace_id = fp.workspace_id
+group by fp.workspace_id, fp.id, fp.period_start;
 
-CREATE INDEX idx_entries_workspace_month ON public.entries USING btree (workspace_id, month_id);
+create or replace view public.v_period_totals_by_status as
+select
+  fp.workspace_id,
+  fp.id as period_id,
+  fp.period_start,
+  t.status,
+  coalesce(sum(case when t.type = 'income'::transaction_type then t.amount end), 0::numeric) as income_total,
+  coalesce(sum(case when t.type = 'expense'::transaction_type then t.amount end), 0::numeric) as expense_total,
+  coalesce(sum(case when t.type = 'investment'::transaction_type then t.amount end), 0::numeric) as investment_total
+from fiscal_periods fp
+  left join transactions t on t.period_id = fp.id and t.workspace_id = fp.workspace_id
+group by fp.workspace_id, fp.id, fp.period_start, t.status;
 
-CREATE INDEX idx_recurrence_active_period ON public.recurrence_rules USING btree (active, start_month, end_month);
+-- ============================================================
+-- Functions
+-- ============================================================
 
-CREATE INDEX idx_recurrence_workspace ON public.recurrence_rules USING btree (workspace_id, active);
-
-CREATE UNIQUE INDEX uq_categories_workspace_code ON public.categories USING btree (workspace_id, code);
-
-CREATE UNIQUE INDEX uq_categories_workspace_group_name ON public.categories USING btree (workspace_id, group_id, name);
-
-CREATE UNIQUE INDEX uq_category_groups_workspace_code ON public.category_groups USING btree (workspace_id, code);
-
-CREATE UNIQUE INDEX uq_category_groups_workspace_name ON public.category_groups USING btree (workspace_id, name);
-
-CREATE UNIQUE INDEX uq_months_workspace_start ON public.months USING btree (workspace_id, month_start);
-
-CREATE UNIQUE INDEX uq_user_invites_workspace_email ON public.user_invites USING btree (workspace_id, lower(email));
-
-create or replace view public.v_monthly_totals as  SELECT m.workspace_id,
-    m.id AS month_id,
-    m.month_start,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'receita'::entry_type AND e.status <> 'cancelado'::entry_status THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS receita_total,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'despesa'::entry_type AND e.status <> 'cancelado'::entry_status THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS despesa_total,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'despesa'::entry_type AND e.is_recurring AND e.status <> 'cancelado'::entry_status THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS despesa_recorrente,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'investimento'::entry_type AND e.status <> 'cancelado'::entry_status THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS investimento_total,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'receita'::entry_type AND e.status <> 'cancelado'::entry_status THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) - COALESCE(sum(
-        CASE
-            WHEN (e.type = ANY (ARRAY['despesa'::entry_type, 'investimento'::entry_type])) AND e.status <> 'cancelado'::entry_status THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS resultado_mes
-   FROM months m
-     LEFT JOIN entries e ON e.month_id = m.id AND e.workspace_id = m.workspace_id
-  GROUP BY m.workspace_id, m.id, m.month_start;;
-
-create or replace view public.v_monthly_totals_by_status as  SELECT m.workspace_id,
-    m.id AS month_id,
-    m.month_start,
-    e.status,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'receita'::entry_type THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS receita_total,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'despesa'::entry_type THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS despesa_total,
-    COALESCE(sum(
-        CASE
-            WHEN e.type = 'investimento'::entry_type THEN e.amount
-            ELSE NULL::numeric
-        END), 0::numeric) AS investimento_total
-   FROM months m
-     LEFT JOIN entries e ON e.month_id = m.id AND e.workspace_id = m.workspace_id
-  GROUP BY m.workspace_id, m.id, m.month_start, e.status;;
-
-CREATE OR REPLACE FUNCTION public.current_user_role()
- RETURNS text
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+create or replace function public.get_user_role()
+returns text
+language sql
+stable security definer
+set search_path to 'public'
+as $function$
   select role
   from public.user_profiles
   where id = auth.uid()
     and active = true;
-$function$
+$function$;
 
-
-CREATE OR REPLACE FUNCTION public.handle_new_user()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-declare
-  invite_role text;
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
 begin
-  select role
-    into invite_role
-  from public.user_invites
-  where lower(email) = lower(new.email)
-    and accepted_at is null
-  order by created_at desc
-  limit 1;
-
   insert into public.user_profiles (id, email, role, active)
-  values (
-    new.id,
-    new.email,
-    coalesce(invite_role, 'viewer'),
-    true
-  )
+  values (new.id, new.email, 'client', true)
   on conflict (id) do nothing;
 
-  update public.user_invites
+  update public.workspace_invites
   set accepted_at = now()
   where lower(email) = lower(new.email)
     and accepted_at is null;
 
   return new;
 end;
-$function$
+$function$;
 
-
-CREATE OR REPLACE FUNCTION public.has_workspace_role(p_workspace_id uuid, p_roles text[])
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+create or replace function public.has_workspace_role(p_workspace_id uuid, p_roles text[])
+returns boolean
+language sql
+stable security definer
+set search_path to 'public'
+as $function$
   select exists (
     select 1
     from public.workspace_members wm
     where wm.workspace_id = p_workspace_id
       and wm.user_id = auth.uid()
       and wm.active = true
-      and wm.role = any (p_roles)
+      and wm.role::text = any (p_roles)
   );
-$function$
+$function$;
 
-
-CREATE OR REPLACE FUNCTION public.is_admin()
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable security definer
+set search_path to 'public'
+as $function$
   select exists (
     select 1
     from public.user_profiles
     where id = auth.uid()
-      and role = 'admin'
+      and role = 'internal'
       and active = true
   );
-$function$
+$function$;
 
-
-CREATE OR REPLACE FUNCTION public.set_updated_at()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $function$
 begin
   new.updated_at = now();
   return new;
 end;
-$function$
+$function$;
 
+create or replace function public.refresh_period_balances()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_period_id uuid;
+  v_workspace_id uuid;
+begin
+  if TG_OP = 'DELETE' then
+    v_period_id := OLD.period_id;
+    v_workspace_id := OLD.workspace_id;
+  else
+    v_period_id := NEW.period_id;
+    v_workspace_id := NEW.workspace_id;
+  end if;
 
-CREATE TRIGGER trg_categories_updated_at BEFORE UPDATE ON categories FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  insert into period_balances (period_id, workspace_id, income_total, expense_total, recurring_expense, investment_total, net_result, calculated_at)
+  select
+    v_period_id,
+    v_workspace_id,
+    coalesce(sum(case when t.type = 'income' and t.status <> 'cancelled' then t.amount end), 0),
+    coalesce(sum(case when t.type = 'expense' and t.status <> 'cancelled' then t.amount end), 0),
+    coalesce(sum(case when t.type = 'expense' and t.is_recurring and t.status <> 'cancelled' then t.amount end), 0),
+    coalesce(sum(case when t.type = 'investment' and t.status <> 'cancelled' then t.amount end), 0),
+    coalesce(sum(case when t.type = 'income' and t.status <> 'cancelled' then t.amount end), 0)
+      - coalesce(sum(case when t.type in ('expense', 'investment') and t.status <> 'cancelled' then t.amount end), 0),
+    now()
+  from transactions t
+  where t.period_id = v_period_id and t.workspace_id = v_workspace_id
+  on conflict (period_id) do update set
+    income_total = excluded.income_total,
+    expense_total = excluded.expense_total,
+    recurring_expense = excluded.recurring_expense,
+    investment_total = excluded.investment_total,
+    net_result = excluded.net_result,
+    calculated_at = excluded.calculated_at;
 
-CREATE TRIGGER trg_category_groups_updated_at BEFORE UPDATE ON category_groups FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  -- Also recalculate if the period changed (e.g., entry moved between periods)
+  if TG_OP = 'UPDATE' and OLD.period_id is distinct from NEW.period_id then
+    insert into period_balances (period_id, workspace_id, income_total, expense_total, recurring_expense, investment_total, net_result, calculated_at)
+    select
+      OLD.period_id,
+      OLD.workspace_id,
+      coalesce(sum(case when t.type = 'income' and t.status <> 'cancelled' then t.amount end), 0),
+      coalesce(sum(case when t.type = 'expense' and t.status <> 'cancelled' then t.amount end), 0),
+      coalesce(sum(case when t.type = 'expense' and t.is_recurring and t.status <> 'cancelled' then t.amount end), 0),
+      coalesce(sum(case when t.type = 'investment' and t.status <> 'cancelled' then t.amount end), 0),
+      coalesce(sum(case when t.type = 'income' and t.status <> 'cancelled' then t.amount end), 0)
+        - coalesce(sum(case when t.type in ('expense', 'investment') and t.status <> 'cancelled' then t.amount end), 0),
+      now()
+    from transactions t
+    where t.period_id = OLD.period_id and t.workspace_id = OLD.workspace_id
+    on conflict (period_id) do update set
+      income_total = excluded.income_total,
+      expense_total = excluded.expense_total,
+      recurring_expense = excluded.recurring_expense,
+      investment_total = excluded.investment_total,
+      net_result = excluded.net_result,
+      calculated_at = excluded.calculated_at;
+  end if;
 
-CREATE TRIGGER trg_entries_updated_at BEFORE UPDATE ON entries FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  return null;
+end;
+$function$;
 
-CREATE TRIGGER trg_months_updated_at BEFORE UPDATE ON months FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- ============================================================
+-- Triggers
+-- ============================================================
 
-CREATE TRIGGER trg_recurrence_rules_updated_at BEFORE UPDATE ON recurrence_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+create trigger trg_workspaces_updated_at before update on workspaces for each row execute function set_updated_at();
+create trigger trg_user_profiles_updated_at before update on user_profiles for each row execute function set_updated_at();
+create trigger trg_workspace_members_updated_at before update on workspace_members for each row execute function set_updated_at();
+create trigger trg_groups_updated_at before update on groups for each row execute function set_updated_at();
+create trigger trg_categories_updated_at before update on categories for each row execute function set_updated_at();
+create trigger trg_fiscal_periods_updated_at before update on fiscal_periods for each row execute function set_updated_at();
+create trigger trg_transactions_updated_at before update on transactions for each row execute function set_updated_at();
+create trigger trg_recurrences_updated_at before update on recurrences for each row execute function set_updated_at();
 
-CREATE TRIGGER trg_user_profiles_updated_at BEFORE UPDATE ON user_profiles FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- Auto-refresh period_balances when transactions change
+create trigger trg_transactions_refresh_balances
+  after insert or update or delete on transactions
+  for each row execute function refresh_period_balances();
 
-CREATE TRIGGER trg_workspace_members_updated_at BEFORE UPDATE ON workspace_members FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trg_workspaces_updated_at BEFORE UPDATE ON workspaces FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-alter table public.categories enable row level security;
-
-alter table public.category_groups enable row level security;
-
-alter table public.entries enable row level security;
-
-alter table public.monthly_balances enable row level security;
-
-alter table public.months enable row level security;
-
-alter table public.recurrence_rules enable row level security;
-
-alter table public.user_invites enable row level security;
-
-alter table public.user_profiles enable row level security;
-
-alter table public.workspace_members enable row level security;
+-- ============================================================
+-- Row Level Security
+-- ============================================================
 
 alter table public.workspaces enable row level security;
+alter table public.user_profiles enable row level security;
+alter table public.workspace_members enable row level security;
+alter table public.workspace_invites enable row level security;
+alter table public.groups enable row level security;
+alter table public.categories enable row level security;
+alter table public.fiscal_periods enable row level security;
+alter table public.transactions enable row level security;
+alter table public.recurrences enable row level security;
+alter table public.period_balances enable row level security;
+alter table public.audit_events enable row level security;
+alter table public.import_jobs enable row level security;
+alter table public.import_job_rows enable row level security;
 
-create policy categories_select_workspace on public.categories for select to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+-- ============================================================
+-- RLS Policies
+-- ============================================================
 
-create policy categories_write_workspace on public.categories for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+-- workspaces
+create policy "workspaces.authenticated:insert" on public.workspaces
+  for insert to authenticated
+  with check ((created_by = auth.uid()) or (created_by is null));
 
-create policy category_groups_select_workspace on public.category_groups for select to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+create policy "workspaces.member:select" on public.workspaces
+  for select to authenticated
+  using (has_workspace_role(id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
 
-create policy category_groups_write_workspace on public.category_groups for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+create policy "workspaces.owner:update" on public.workspaces
+  for update to authenticated
+  using (has_workspace_role(id, array['owner'::text]))
+  with check (has_workspace_role(id, array['owner'::text]));
 
-create policy entries_select_workspace on public.entries for select to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+-- user_profiles
+create policy "user_profiles.self:insert" on public.user_profiles
+  for insert to authenticated
+  with check (id = auth.uid());
 
-create policy entries_write_workspace on public.entries for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+create policy "user_profiles.authenticated:select" on public.user_profiles
+  for select to authenticated
+  using ((id = auth.uid()) or is_admin());
 
-create policy monthly_balances_select_workspace on public.monthly_balances for select to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+create policy "user_profiles.admin:update" on public.user_profiles
+  for update to authenticated
+  using (is_admin())
+  with check (is_admin());
 
-create policy monthly_balances_write_workspace on public.monthly_balances for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+-- workspace_members
+create policy "workspace_members.member:select" on public.workspace_members
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
 
-create policy months_select_workspace on public.months for select to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+create policy "workspace_members.admin:write" on public.workspace_members
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text]));
 
-create policy months_write_workspace on public.months for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+-- workspace_invites
+create policy "workspace_invites.admin:all" on public.workspace_invites
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text]));
 
-create policy recurrence_rules_select_workspace on public.recurrence_rules for select to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+-- groups
+create policy "groups.authenticated:select" on public.groups
+  for select to authenticated
+  using (deleted_at is null and (workspace_id is null or has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text])));
 
-create policy recurrence_rules_write_workspace on public.recurrence_rules for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+create policy "groups.writer:write" on public.groups
+  for all to authenticated
+  using ((workspace_id is null and is_admin()) or (workspace_id is not null and has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text])))
+  with check ((workspace_id is null and is_admin()) or (workspace_id is not null and has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text])));
 
-create policy user_invites_workspace_admin on public.user_invites for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+-- categories
+create policy "categories.authenticated:select" on public.categories
+  for select to authenticated
+  using (deleted_at is null and (workspace_id is null or has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text])));
 
-create policy user_profiles_insert_self on public.user_profiles for insert to authenticated with check ((id = auth.uid()));
+create policy "categories.writer:write" on public.categories
+  for all to authenticated
+  using ((workspace_id is null and is_admin()) or (workspace_id is not null and has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text])))
+  with check ((workspace_id is null and is_admin()) or (workspace_id is not null and has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text])));
 
-create policy user_profiles_select on public.user_profiles for select to authenticated using (((id = auth.uid()) OR is_admin()));
+-- fiscal_periods
+create policy "fiscal_periods.member:select" on public.fiscal_periods
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
 
-create policy user_profiles_update on public.user_profiles for update to authenticated using (is_admin()) with check (is_admin());
+create policy "fiscal_periods.writer:write" on public.fiscal_periods
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]));
 
-create policy workspace_members_select_member on public.workspace_members for select to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+-- transactions
+create policy "transactions.member:select" on public.transactions
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
 
-create policy workspace_members_write_owner_admin on public.workspace_members for all to authenticated using (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text])) with check (has_workspace_role(workspace_id, ARRAY['owner'::text, 'admin'::text]));
+create policy "transactions.writer:write" on public.transactions
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]));
 
-create policy workspaces_insert_owner on public.workspaces for insert to authenticated with check (((created_by = auth.uid()) OR (created_by IS NULL)));
+-- recurrences
+create policy "recurrences.member:select" on public.recurrences
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
 
-create policy workspaces_select_member on public.workspaces for select to authenticated using (has_workspace_role(id, ARRAY['owner'::text, 'admin'::text, 'viewer'::text]));
+create policy "recurrences.writer:write" on public.recurrences
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]));
 
-create policy workspaces_update_owner on public.workspaces for update to authenticated using (has_workspace_role(id, ARRAY['owner'::text])) with check (has_workspace_role(id, ARRAY['owner'::text]));
+-- period_balances
+create policy "period_balances.member:select" on public.period_balances
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
+
+create policy "period_balances.writer:write" on public.period_balances
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]));
+
+-- audit_events
+create policy "audit_events.member:select" on public.audit_events
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
+
+create policy "audit_events.writer:write" on public.audit_events
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]));
+
+-- import_jobs
+create policy "import_jobs.member:select" on public.import_jobs
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
+
+create policy "import_jobs.writer:write" on public.import_jobs
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]) and created_by = auth.uid())
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]) and created_by = auth.uid());
+
+-- import_job_rows
+create policy "import_job_rows.member:select" on public.import_job_rows
+  for select to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text]));
+
+create policy "import_job_rows.writer:write" on public.import_job_rows
+  for all to authenticated
+  using (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]))
+  with check (has_workspace_role(workspace_id, array['owner'::text, 'admin'::text, 'member'::text]));

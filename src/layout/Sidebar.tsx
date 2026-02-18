@@ -1,12 +1,12 @@
 ﻿import { LayoutDashboard, List, LogOut, Settings } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { AppPage } from "../features/app/types";
-import type { UserRole } from "../types";
+import type { WorkspaceRole } from "../types";
 
 type SidebarProps = {
   page: AppPage;
   currentEmail: string | null;
-  role: UserRole | null;
+  role: WorkspaceRole | null;
   onChangePage: (nextPage: AppPage) => void;
   onOpenSettingsHub: () => void;
 };

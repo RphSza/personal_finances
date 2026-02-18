@@ -41,19 +41,10 @@ export function AuthScreen() {
       <section className="auth-card">
         <div className="auth-panel auth-panel-form">
           <p className="auth-kicker">Personal Finances</p>
-          <h1>Faça seu login</h1>
+          <h1>{mode === "signin" ? "Faça seu login" : "Crie sua conta"}</h1>
           <p className="auth-description">
             Controle seu fluxo financeiro em uma experiência limpa, segura e colaborativa.
           </p>
-
-          <div className="auth-switch">
-            <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")} type="button" disabled={loading}>
-              Entrar
-            </button>
-            <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")} type="button" disabled={loading}>
-              Criar conta
-            </button>
-          </div>
 
           <form onSubmit={handleSubmit} className="auth-form">
             <label className="input-label">

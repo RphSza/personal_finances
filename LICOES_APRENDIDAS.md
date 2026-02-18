@@ -78,3 +78,39 @@ Este arquivo deve ser consultado antes de mudanças relevantes no produto, arqui
   - adotar TanStack Router com rotas explicitas (`/dashboard`, `/entries`, `/settings/...`, `/auth/login`),
   - manter redirecionamentos de sessao (nao autenticado -> login; autenticado em auth -> dashboard),
   - validar layout de header em estados sem controles mensais para evitar espaco visual residual.
+
+## 2026-02-17 - Importacao financeira sem trilha de lote e deduplicacao fraca
+- Contexto: implementacao do Sprint S3 (importador CSV/OFX).
+- Erro/risco observado: sem registro por lote e sem deduplicacao consistente, importacoes podem gerar retrabalho, baixa rastreabilidade e duplicidade de lancamentos.
+- Causa raiz: fluxo inicial de importacao sem tabelas dedicadas de auditoria e sem chave de dedupe reutilizavel no preview.
+- Acao preventiva:
+  - registrar cada upload em `import_jobs` e cada linha em `import_job_rows`,
+  - aplicar dedupe por chave derivada (`data|valor|tipo|descricao`) contra base existente e dentro do proprio arquivo,
+  - manter RLS por `workspace_id` para proteger dados de importacao entre tenants.
+
+## 2026-02-17 - Preview de importacao sem categoria por linha bloqueando confirmacao
+- Contexto: evolucao do modal de importacao apos testes com OFX real.
+- Erro/risco observado: confirmacao ficava indisponivel sem explicitar causa e sem permitir ajuste fino por registro.
+- Causa raiz: categoria unica global e ausencia de edicao por linha no preview.
+- Acao preventiva:
+  - adotar categoria por linha com sugestao automatica e fallback para \"outros\",
+  - permitir criacao rapida de categoria dentro do modal,
+  - expor contadores claros (`prontas`, `duplicadas`, `sem categoria`, `erro`) para destravar a decisao do usuario.
+
+## 2026-02-17 - Onboarding sem taxonomia padrao aumenta friccao inicial
+- Contexto: necessidade de cobrir casos comuns sem depender de cadastro manual inicial de grupos/categorias.
+- Erro/risco observado: usuarios novos ficavam com fluxo de importacao e categorizacao bloqueado/limitado.
+- Causa raiz: base inicial vazia de taxonomia por workspace.
+- Acao preventiva:
+  - manter seed idempotente de grupos/categorias default por workspace,
+  - executar backfill em workspaces existentes via migration,
+  - criar trigger para aplicar automaticamente em novos workspaces.
+
+## 2026-02-17 - Migracao para catalogo global exige limpeza conservadora
+- Contexto: adocao de `template_groups`/`template_categories` com legado em tabelas locais por workspace.
+- Erro/risco observado: limpeza agressiva pode apagar personalizacoes ou quebrar historico referenciado por lancamentos/recorrencias.
+- Causa raiz: coexistencia temporaria de taxonomia global e local apos backfill.
+- Acao preventiva:
+  - remover apenas duplicatas locais sem uso operacional e com match exato ao template,
+  - preservar registros customizados e todos os que tenham referencia em `entries` ou `recurrence_rules`,
+  - executar preview de impacto antes da limpeza efetiva.

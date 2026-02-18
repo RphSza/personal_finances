@@ -1,79 +1,172 @@
-import { FormEvent } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { List, Pencil, Sheet, Trash2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Spinner } from "../../components/LoadingState";
-import type { EntryStatus, EntryType, CategoryRow, EntryForm, EntryRow } from "../../types";
+import { useImport } from "../../hooks/useImport";
+import {
+  defaultTransactionForm,
+  useSaveTransaction,
+  useToggleTransactionStatus,
+  useDeleteTransaction,
+} from "../../hooks/useTransactions";
+import { ImportModal } from "./ImportModal";
+import type {
+  TransactionStatus,
+  TransactionType,
+  TransactionForm,
+  TransactionRow,
+  CategoryRow,
+  CategoryGroupRow,
+  FiscalPeriodRow,
+} from "../../types";
 import type { EntryViewMode } from "../app/types";
 
 type BoardGroup = {
   groupId: string;
   groupName: string;
   total: number;
-  rows: EntryRow[];
+  rows: TransactionRow[];
 };
 
 type EntriesPageProps = {
-  statusFilter: "todos" | EntryStatus;
-  onChangeStatusFilter: (status: "todos" | EntryStatus) => void;
-  entryViewMode: EntryViewMode;
-  onChangeEntryViewMode: (mode: EntryViewMode) => void;
-  visibleEntries: EntryRow[];
-  boardRows: BoardGroup[];
+  period: FiscalPeriodRow | undefined;
+  transactions: TransactionRow[];
   categories: CategoryRow[];
-  entryForm: EntryForm;
-  editingEntryId: string | null;
-  isAdmin: boolean;
+  groups: CategoryGroupRow[];
+  categoryById: Record<string, CategoryRow>;
+  groupById: Record<string, CategoryGroupRow>;
+  boardRows: BoardGroup[];
+  canWrite: boolean;
+  selectedMonth: string;
   formatBRL: (value: number) => string;
-  getGroupName: (entry: EntryRow) => string;
+  getGroupName: (entry: TransactionRow) => string;
   getCategoryName: (categoryId: string) => string;
-  onEditEntry: (entry: EntryRow) => void;
-  onToggleEntryStatus: (entry: EntryRow) => void;
-  onDeleteEntry: (entry: EntryRow) => void;
-  onSubmitEntry: (event: FormEvent) => Promise<void>;
-  entrySubmitting: boolean;
-  actionLoadingKey: string | null;
-  onCancelEdit: () => void;
-  onEntryFormChange: (next: EntryForm) => void;
+  setMessage: (msg: string) => void;
 };
 
 export function EntriesPage({
-  statusFilter,
-  onChangeStatusFilter,
-  entryViewMode,
-  onChangeEntryViewMode,
-  visibleEntries,
-  boardRows,
+  period,
+  transactions,
   categories,
-  entryForm,
-  editingEntryId,
-  isAdmin,
+  groups,
+  categoryById,
+  groupById,
+  boardRows,
+  canWrite,
+  selectedMonth,
   formatBRL,
   getGroupName,
   getCategoryName,
-  onEditEntry,
-  onToggleEntryStatus,
-  onDeleteEntry,
-  onSubmitEntry,
-  entrySubmitting,
-  actionLoadingKey,
-  onCancelEdit,
-  onEntryFormChange
+  setMessage,
 }: EntriesPageProps) {
+  const qc = useQueryClient();
+
+  const [entryViewMode, setEntryViewMode] = useState<EntryViewMode>("list");
+  const [statusFilter, setStatusFilter] = useState<"todos" | TransactionStatus>("todos");
+  const [entryForm, setEntryForm] = useState<TransactionForm>(defaultTransactionForm);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
+
+  const monthClosed = !!period?.closed_at;
+
+  const saveTransaction = useSaveTransaction();
+  const toggleStatus = useToggleTransactionStatus();
+  const deleteTransaction = useDeleteTransaction();
+
+  const imp = useImport(period, transactions, categories, groups, () =>
+    qc.invalidateQueries()
+  );
+
+  const visibleEntries = useMemo(
+    () => (statusFilter === "todos" ? transactions : transactions.filter((t) => t.status === statusFilter)),
+    [transactions, statusFilter]
+  );
+
+  const filteredBoardRows = useMemo(
+    () => {
+      if (statusFilter === "todos") return boardRows;
+      const filtered = transactions.filter((t) => t.status === statusFilter);
+      const byGroup: Record<string, TransactionRow[]> = {};
+      for (const t of filtered) {
+        const gid = categoryById[t.category_id]?.group_id ?? "unassigned";
+        (byGroup[gid] ??= []).push(t);
+      }
+      return Object.entries(byGroup).map(([groupId, rows]) => ({
+        groupId,
+        groupName: groupById[groupId]?.name ?? "Sem grupo",
+        total: rows.reduce((sum, r) => sum + Number(r.amount), 0),
+        rows,
+      }));
+    },
+    [boardRows, categoryById, groupById, statusFilter, transactions]
+  );
+
+  const onSubmitEntry = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!period || !canWrite || monthClosed) return;
+    try {
+      await saveTransaction.mutateAsync({
+        form: entryForm,
+        periodId: period.id,
+        editingId: editingEntryId,
+        selectedMonth,
+      });
+      setEntryForm(defaultTransactionForm);
+      setEditingEntryId(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Falha ao salvar.");
+    }
+  };
+
+  const editEntry = (entry: TransactionRow) => {
+    setEditingEntryId(entry.id);
+    setEntryForm({
+      description: entry.description,
+      amount: String(Number(entry.amount).toFixed(2)).replace(".", ","),
+      type: entry.type,
+      status: entry.status,
+      categoryId: entry.category_id,
+      isRecurring: entry.is_recurring,
+      plannedDate: entry.planned_date ?? "",
+      settledAt: entry.settled_at ?? "",
+      notes: entry.notes ?? "",
+    });
+  };
+
+  const onToggleEntryStatus = async (entry: TransactionRow) => {
+    if (monthClosed) { setMessage("Competencia fechada."); return; }
+    setActionLoadingKey(`toggle-entry-${entry.id}`);
+    try { await toggleStatus.mutateAsync(entry); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Falha."); }
+    finally { setActionLoadingKey(null); }
+  };
+
+  const onDeleteEntry = async (entry: TransactionRow) => {
+    if (monthClosed) { setMessage("Competencia fechada."); return; }
+    setActionLoadingKey(`delete-entry-${entry.id}`);
+    try { await deleteTransaction.mutateAsync(entry.id); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Falha."); }
+    finally { setActionLoadingKey(null); }
+  };
+
+  const entrySubmitting = saveTransaction.isPending;
+
   return (
     <main className="entries-layout">
       <section className="panel">
         <div className="panel-header">
-          <h3>Lançamentos</h3>
+          <h3>Lancamentos</h3>
           <div className="inline-controls">
-            <select value={statusFilter} onChange={(e) => onChangeStatusFilter(e.target.value as "todos" | EntryStatus)}>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "todos" | TransactionStatus)}>
               <option value="todos">Todos</option>
-              <option value="previsto">Previstos</option>
-              <option value="realizado">Realizados</option>
-              <option value="cancelado">Cancelados</option>
+              <option value="planned">Previstos</option>
+              <option value="settled">Realizados</option>
+              <option value="cancelled">Cancelados</option>
             </select>
-            <button className={entryViewMode === "list" ? "toggle active" : "toggle"} onClick={() => onChangeEntryViewMode("list")}>
+            <button className={entryViewMode === "list" ? "toggle active" : "toggle"} onClick={() => setEntryViewMode("list")}>
               <List size={14} />
             </button>
-            <button className={entryViewMode === "board" ? "toggle active" : "toggle"} onClick={() => onChangeEntryViewMode("board")}>
+            <button className={entryViewMode === "board" ? "toggle active" : "toggle"} onClick={() => setEntryViewMode("board")}>
               <Sheet size={14} />
             </button>
           </div>
@@ -84,13 +177,13 @@ export function EntriesPage({
             <table>
               <thead>
                 <tr>
-                  <th>Descrição</th>
+                  <th>Descricao</th>
                   <th>Grupo</th>
                   <th>Categoria</th>
                   <th>Tipo</th>
                   <th>Status</th>
                   <th>Valor</th>
-                  <th>Ações</th>
+                  <th>Acoes</th>
                 </tr>
               </thead>
               <tbody>
@@ -103,17 +196,17 @@ export function EntriesPage({
                     <td><span className={`pill status ${entry.status}`}>{entry.status}</span></td>
                     <td className="amount">{formatBRL(Number(entry.amount))}</td>
                     <td className="actions">
-                      <button onClick={() => onEditEntry(entry)} disabled={!isAdmin || entrySubmitting}><Pencil size={14} /></button>
+                      <button onClick={() => editEntry(entry)} disabled={!canWrite || monthClosed || entrySubmitting}><Pencil size={14} /></button>
                       <button
-                        onClick={() => onToggleEntryStatus(entry)}
-                        disabled={!isAdmin || entry.status === "cancelado" || actionLoadingKey === `toggle-entry-${entry.id}`}
+                        onClick={() => void onToggleEntryStatus(entry)}
+                        disabled={!canWrite || monthClosed || entry.status === "cancelled" || actionLoadingKey === `toggle-entry-${entry.id}`}
                       >
                         {actionLoadingKey === `toggle-entry-${entry.id}` ? <Spinner label="..." compact /> : "OK"}
                       </button>
                       <button
                         className="danger"
-                        onClick={() => onDeleteEntry(entry)}
-                        disabled={!isAdmin || actionLoadingKey === `delete-entry-${entry.id}`}
+                        onClick={() => void onDeleteEntry(entry)}
+                        disabled={!canWrite || monthClosed || actionLoadingKey === `delete-entry-${entry.id}`}
                       >
                         {actionLoadingKey === `delete-entry-${entry.id}` ? <Spinner label="..." compact /> : <Trash2 size={14} />}
                       </button>
@@ -125,7 +218,7 @@ export function EntriesPage({
           </div>
         ) : (
           <div className="board-grid">
-            {boardRows.map((block) => (
+            {filteredBoardRows.map((block) => (
               <article key={block.groupId} className="board-column">
                 <header>
                   <h4>{block.groupName}</h4>
@@ -145,111 +238,121 @@ export function EntriesPage({
         )}
       </section>
 
-      <aside className="panel">
-        <h3>{editingEntryId ? "Editar lançamento" : "Novo lançamento"}</h3>
-        <form onSubmit={(event) => void onSubmitEntry(event)} className="form-grid">
-          <input
-            placeholder="Descrição"
-            value={entryForm.description}
-            onChange={(e) => onEntryFormChange({ ...entryForm, description: e.target.value })}
-            required
-            disabled={!isAdmin || entrySubmitting}
-          />
-
-          <div className="two-col">
+      <aside className="panel entries-sidebar-stack">
+        <section className="entries-subpanel">
+          <h3>{editingEntryId ? "Editar lancamento" : "Novo lancamento"}</h3>
+          <form onSubmit={(event) => void onSubmitEntry(event)} className="form-grid">
             <input
-              placeholder="Valor"
-              value={entryForm.amount}
-              onChange={(e) => onEntryFormChange({ ...entryForm, amount: e.target.value })}
+              placeholder="Descricao"
+              value={entryForm.description}
+              onChange={(e) => setEntryForm({ ...entryForm, description: e.target.value })}
               required
-              disabled={!isAdmin || entrySubmitting}
+              disabled={!canWrite || monthClosed || entrySubmitting}
             />
+            <div className="two-col">
+              <input
+                placeholder="Valor"
+                value={entryForm.amount}
+                onChange={(e) => setEntryForm({ ...entryForm, amount: e.target.value })}
+                required
+                disabled={!canWrite || monthClosed || entrySubmitting}
+              />
+              <select
+                value={entryForm.type}
+                onChange={(e) => setEntryForm({ ...entryForm, type: e.target.value as TransactionType })}
+                disabled={!canWrite || monthClosed || entrySubmitting}
+              >
+                <option value="income">income</option>
+                <option value="expense">expense</option>
+                <option value="investment">investment</option>
+              </select>
+            </div>
             <select
-              value={entryForm.type}
-              onChange={(e) => onEntryFormChange({ ...entryForm, type: e.target.value as EntryType })}
-              disabled={!isAdmin || entrySubmitting}
+              value={entryForm.categoryId}
+              onChange={(e) => setEntryForm({ ...entryForm, categoryId: e.target.value })}
+              required
+              disabled={!canWrite || monthClosed || entrySubmitting}
             >
-              <option value="receita">receita</option>
-              <option value="despesa">despesa</option>
-              <option value="investimento">investimento</option>
+              <option value="">Selecione a categoria</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
             </select>
-          </div>
-
-          <select
-            value={entryForm.categoryId}
-            onChange={(e) => onEntryFormChange({ ...entryForm, categoryId: e.target.value })}
-            required
-            disabled={!isAdmin || entrySubmitting}
-          >
-            <option value="">Selecione a categoria</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
-          </select>
-
-          <div className="two-col">
-            <select
-              value={entryForm.status}
-              onChange={(e) => onEntryFormChange({ ...entryForm, status: e.target.value as EntryStatus })}
-              disabled={!isAdmin || entrySubmitting}
-            >
-              <option value="previsto">previsto</option>
-              <option value="realizado">realizado</option>
-              <option value="cancelado">cancelado</option>
-            </select>
-            <input
-              type="date"
-              value={entryForm.status === "realizado" ? entryForm.realizedAt : entryForm.plannedDate}
-              onChange={(e) =>
-                onEntryFormChange(
-                  entryForm.status === "realizado"
-                    ? { ...entryForm, realizedAt: e.target.value }
-                    : { ...entryForm, plannedDate: e.target.value }
-                )
-              }
-              disabled={!isAdmin || entrySubmitting}
+            <div className="two-col">
+              <select
+                value={entryForm.status}
+                onChange={(e) => setEntryForm({ ...entryForm, status: e.target.value as TransactionStatus })}
+                disabled={!canWrite || monthClosed || entrySubmitting}
+              >
+                <option value="planned">planned</option>
+                <option value="settled">settled</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+              <input
+                type="date"
+                value={entryForm.status === "settled" ? entryForm.settledAt : entryForm.plannedDate}
+                onChange={(e) =>
+                  setEntryForm(
+                    entryForm.status === "settled"
+                      ? { ...entryForm, settledAt: e.target.value }
+                      : { ...entryForm, plannedDate: e.target.value }
+                  )
+                }
+                disabled={!canWrite || monthClosed || entrySubmitting}
+              />
+            </div>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={entryForm.isRecurring}
+                onChange={(e) => setEntryForm({ ...entryForm, isRecurring: e.target.checked })}
+                disabled={!canWrite || monthClosed || entrySubmitting}
+              />
+              Recorrente
+            </label>
+            <textarea
+              placeholder="Notas"
+              value={entryForm.notes}
+              onChange={(e) => setEntryForm({ ...entryForm, notes: e.target.value })}
+              disabled={!canWrite || monthClosed || entrySubmitting}
             />
-          </div>
-
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={entryForm.isRecurring}
-              onChange={(e) => onEntryFormChange({ ...entryForm, isRecurring: e.target.checked })}
-              disabled={!isAdmin || entrySubmitting}
-            />
-            Recorrente
-          </label>
-
-          <textarea
-            placeholder="Notas"
-            value={entryForm.notes}
-            onChange={(e) => onEntryFormChange({ ...entryForm, notes: e.target.value })}
-            disabled={!isAdmin || entrySubmitting}
-          />
-
-          <div className="inline-controls">
-            <button
-              type="submit"
-              className={`primary-button ${entrySubmitting ? "is-loading" : ""}`}
-              disabled={!isAdmin || entrySubmitting}
-            >
-              {entrySubmitting ? (
-                <Spinner label={editingEntryId ? "Salvando alterações..." : "Salvando lançamento..."} compact />
-              ) : editingEntryId ? (
-                "Salvar alterações"
-              ) : (
-                "Salvar lançamento"
-              )}
-            </button>
-            {editingEntryId ? (
-              <button type="button" className="ghost-button" onClick={onCancelEdit} disabled={entrySubmitting}>
-                Cancelar
+            <div className="inline-controls">
+              <button
+                type="submit"
+                className={`primary-button ${entrySubmitting ? "is-loading" : ""}`}
+                disabled={!canWrite || monthClosed || entrySubmitting}
+              >
+                {entrySubmitting ? (
+                  <Spinner label={editingEntryId ? "Salvando alteracoes..." : "Salvando lancamento..."} compact />
+                ) : editingEntryId ? "Salvar alteracoes" : "Salvar lancamento"}
               </button>
-            ) : null}
-          </div>
-        </form>
+              {editingEntryId ? (
+                <button type="button" className="ghost-button" onClick={() => { setEditingEntryId(null); setEntryForm(defaultTransactionForm); }} disabled={entrySubmitting}>
+                  Cancelar
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={imp.openModal}
+                disabled={!canWrite || monthClosed || entrySubmitting}
+              >
+                Importar
+              </button>
+            </div>
+          </form>
+        </section>
       </aside>
+
+      {imp.importModalOpen ? (
+        <ImportModal
+          imp={imp}
+          categories={categories}
+          canWrite={canWrite}
+          monthClosed={monthClosed}
+          formatBRL={formatBRL}
+        />
+      ) : null}
     </main>
   );
 }

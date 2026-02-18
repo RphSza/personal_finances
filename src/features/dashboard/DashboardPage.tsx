@@ -1,26 +1,26 @@
-﻿import { format, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import type { TrendMode } from "../app/types";
-import type { EntryRow } from "../../types";
+import type { TransactionRow } from "../../types";
 
 type BoardGroup = {
   groupId: string;
   groupName: string;
   total: number;
-  rows: EntryRow[];
+  rows: TransactionRow[];
 };
 
 type TrendRow = {
-  month_start: string;
-  receita_total: number;
-  despesa_total: number;
-  resultado_mes: number;
+  period_start: string;
+  income_total: number;
+  expense_total: number;
+  net_result: number;
 };
 
 type MonthlyStatusRow = {
-  monthStart: string;
+  periodStart: string;
   monthLabel: string;
-  previsto: number;
-  realizado: number;
+  planned: number;
+  settled: number;
 };
 
 type ExpenseCategory = {
@@ -60,38 +60,38 @@ export function DashboardPage({
     <main className="dashboard-layout-grid">
       <section className="panel dashboard-panel">
         <div className="panel-header">
-          <h3>Série mensal {trendMode === "rxd" ? "(receitas x despesas)" : "(resultado do mês)"}</h3>
+          <h3>Serie mensal {trendMode === "income_vs_expense" ? "(receitas x despesas)" : "(resultado do mes)"}</h3>
           <div className="inline-controls">
-            <button className={trendMode === "rxd" ? "toggle active" : "toggle"} onClick={() => onChangeTrendMode("rxd")} title="Mostrar receitas e despesas mensais">R x D</button>
-            <button className={trendMode === "resultado" ? "toggle active" : "toggle"} onClick={() => onChangeTrendMode("resultado")} title="Mostrar resultado mensal">Resultado</button>
-            <button className={trendWindow === 6 ? "toggle active" : "toggle"} onClick={() => onChangeTrendWindow(6)} title="Últimos 6 meses">6M</button>
-            <button className={trendWindow === 12 ? "toggle active" : "toggle"} onClick={() => onChangeTrendWindow(12)} title="Últimos 12 meses">12M</button>
-            <button className={trendWindow === 24 ? "toggle active" : "toggle"} onClick={() => onChangeTrendWindow(24)} title="Últimos 24 meses">24M</button>
+            <button className={trendMode === "income_vs_expense" ? "toggle active" : "toggle"} onClick={() => onChangeTrendMode("income_vs_expense")} title="Mostrar receitas e despesas mensais">R x D</button>
+            <button className={trendMode === "net_result" ? "toggle active" : "toggle"} onClick={() => onChangeTrendMode("net_result")} title="Mostrar resultado mensal">Resultado</button>
+            <button className={trendWindow === 6 ? "toggle active" : "toggle"} onClick={() => onChangeTrendWindow(6)} title="Ultimos 6 meses">6M</button>
+            <button className={trendWindow === 12 ? "toggle active" : "toggle"} onClick={() => onChangeTrendWindow(12)} title="Ultimos 12 meses">12M</button>
+            <button className={trendWindow === 24 ? "toggle active" : "toggle"} onClick={() => onChangeTrendWindow(24)} title="Ultimos 24 meses">24M</button>
           </div>
         </div>
 
         <div className="trend-chart">
           {trendRows.map((row) => {
-            const receitaHeight = (row.receita_total / trendMaxValue) * 100;
-            const despesaHeight = (row.despesa_total / trendMaxValue) * 100;
-            const resultHeight = (Math.abs(row.resultado_mes) / trendResultMaxAbs) * 100;
+            const incomeHeight = (row.income_total / trendMaxValue) * 100;
+            const expenseHeight = (row.expense_total / trendMaxValue) * 100;
+            const resultHeight = (Math.abs(row.net_result) / trendResultMaxAbs) * 100;
             return (
-              <article key={row.month_start} className="trend-col">
-                {trendMode === "rxd" ? (
+              <article key={row.period_start} className="trend-col">
+                {trendMode === "income_vs_expense" ? (
                   <div className="trend-bars">
-                    <span className="trend-bar receita" style={{ height: `${receitaHeight}%` }} />
-                    <span className="trend-bar despesa" style={{ height: `${despesaHeight}%` }} />
+                    <span className="trend-bar income" style={{ height: `${incomeHeight}%` }} />
+                    <span className="trend-bar expense" style={{ height: `${expenseHeight}%` }} />
                   </div>
                 ) : (
                   <div className="trend-bars single">
                     <span
-                      className={`trend-bar resultado ${row.resultado_mes >= 0 ? "pos" : "neg"}`}
+                      className={`trend-bar net-result ${row.net_result >= 0 ? "pos" : "neg"}`}
                       style={{ height: `${resultHeight}%` }}
                     />
                   </div>
                 )}
-                <small>{format(parseISO(row.month_start), "MMM/yy")}</small>
-                <small className={row.resultado_mes >= 0 ? "positive" : "negative"}>{formatBRL(row.resultado_mes)}</small>
+                <small>{format(parseISO(row.period_start), "MMM/yy")}</small>
+                <small className={row.net_result >= 0 ? "positive" : "negative"}>{formatBRL(row.net_result)}</small>
               </article>
             );
           })}
@@ -102,21 +102,21 @@ export function DashboardPage({
         <h3>Previsto x Realizado (resultado mensal)</h3>
         <div className="comparison-chart">
           {monthlyStatusTrend.rows.map((row) => {
-            const previstoWidth = (Math.abs(row.previsto) / monthlyStatusTrend.maxAbs) * 100;
-            const realizadoWidth = (Math.abs(row.realizado) / monthlyStatusTrend.maxAbs) * 100;
+            const plannedWidth = (Math.abs(row.planned) / monthlyStatusTrend.maxAbs) * 100;
+            const settledWidth = (Math.abs(row.settled) / monthlyStatusTrend.maxAbs) * 100;
             return (
-              <article key={row.monthStart} className="comparison-row">
+              <article key={row.periodStart} className="comparison-row">
                 <small>{row.monthLabel}</small>
                 <div className="comparison-bars">
                   <div className="comparison-line">
                     <span className="comparison-label">Previsto</span>
-                    <span className={`comparison-fill previsto ${row.previsto >= 0 ? "pos" : "neg"}`} style={{ width: `${previstoWidth}%` }} />
-                    <span className={row.previsto >= 0 ? "positive" : "negative"}>{formatBRL(row.previsto)}</span>
+                    <span className={`comparison-fill planned ${row.planned >= 0 ? "pos" : "neg"}`} style={{ width: `${plannedWidth}%` }} />
+                    <span className={row.planned >= 0 ? "positive" : "negative"}>{formatBRL(row.planned)}</span>
                   </div>
                   <div className="comparison-line">
                     <span className="comparison-label">Realizado</span>
-                    <span className={`comparison-fill realizado ${row.realizado >= 0 ? "pos" : "neg"}`} style={{ width: `${realizadoWidth}%` }} />
-                    <span className={row.realizado >= 0 ? "positive" : "negative"}>{formatBRL(row.realizado)}</span>
+                    <span className={`comparison-fill settled ${row.settled >= 0 ? "pos" : "neg"}`} style={{ width: `${settledWidth}%` }} />
+                    <span className={row.settled >= 0 ? "positive" : "negative"}>{formatBRL(row.settled)}</span>
                   </div>
                 </div>
               </article>
@@ -126,7 +126,7 @@ export function DashboardPage({
       </section>
 
       <section className="panel dashboard-panel">
-        <h3>Top despesas por categoria no mês</h3>
+        <h3>Top despesas por categoria no mes</h3>
         <div className="expense-bars">
           {topExpenseCategories.rows.map((item) => (
             <article key={item.categoryId} className="expense-bar-row">
