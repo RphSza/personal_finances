@@ -15,3 +15,6 @@ export const isCardBillPayment = (description: string) =>
 
 export const isCardCreditEvent = (description: string) =>
   /(estorno|reembolso|credito|crédito|cashback|ajuste a credito|ajuste a crédito)/i.test(description);
+
+export const isBankStatementBillPayment = (description: string) =>
+  /fatura|pgto\s*cart|nubank|visa\s*payment|mastercard|pagamento.*cartao|pagamento.*cartão/i.test(description);

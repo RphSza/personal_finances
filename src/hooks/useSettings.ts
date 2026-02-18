@@ -66,7 +66,7 @@ export function useCreateInvite() {
         );
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.workspaceInvites(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.workspaceInvites(workspaceId!) }); },
   });
 }
 
@@ -83,7 +83,7 @@ export function useUpdateUserRole() {
         .eq("user_id", input.userId);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.workspaceUsers(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.workspaceUsers(workspaceId!) }); },
   });
 }
 
@@ -100,6 +100,6 @@ export function useToggleUserActive() {
         .eq("user_id", input.userId);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.workspaceUsers(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.workspaceUsers(workspaceId!) }); },
   });
 }

@@ -102,7 +102,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [userId, email]);
 
   useEffect(() => {
-    void resolve();
+    // Safety: if workspace resolution hangs, force ready after 15s
+    const fallback = setTimeout(() => {
+      setReady((prev) => {
+        if (!prev) console.warn("[workspace] resolution timed out");
+        return true;
+      });
+    }, 15_000);
+
+    void resolve().finally(() => clearTimeout(fallback));
+
+    return () => clearTimeout(fallback);
   }, [resolve]);
 
   const isAdmin = role === "admin" || role === "owner";

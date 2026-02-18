@@ -42,3 +42,18 @@ Este arquivo deve ser consultado antes de mudanças relevantes no produto, arqui
 - Ação preventiva:
   - fallback manual para criação de skill,
   - checklist de dependências para scripts utilitários.
+
+## 2026-02-18 - Credit Card Billing: ensurePeriodForDate como utilitario compartilhado
+- Contexto: tanto o importador (useImport) quanto o formulario manual (useSaveTransaction) precisam resolver/criar periodos fiscais a partir de uma data de pagamento de fatura.
+- Causa raiz: logica duplicada em dois hooks distintos.
+- Acao preventiva:
+  - extrair `ensurePeriodForDate()` como funcao standalone exportada de `useTransactions.ts`,
+  - reutilizar em qualquer hook que precise resolver periodo por data.
+
+## 2026-02-18 - Credit Card Billing: tipo transfer exige varredura ampla no codebase
+- Contexto: adicionar novo valor ao enum `transaction_type` impacta views SQL, trigger, tipos TS, selects de formulario, filtros, pills de tipo e settings.
+- Causa raiz: o enum e referenciado em ~15 pontos distintos (SQL + frontend).
+- Acao preventiva:
+  - ao adicionar valor a um enum, varrer todas as refs ao enum no codebase,
+  - incluir o novo valor em todos os selects/options de formulario (EntriesPage, ImportModal, SettingsPage),
+  - usar WHERE clause no JOIN das views para filtrar tipos excluidos (mais limpo que condicoes redundantes nos CASE WHEN).

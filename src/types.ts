@@ -1,4 +1,4 @@
-export type TransactionType = "income" | "expense" | "investment";
+export type TransactionType = "income" | "expense" | "investment" | "transfer";
 export type TransactionStatus = "planned" | "settled" | "cancelled";
 export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 
@@ -42,6 +42,8 @@ export type TransactionRow = {
   is_recurring: boolean;
   planned_date: string | null;
   settled_at: string | null;
+  is_credit_card: boolean;
+  credit_card_bill_date: string | null;
   notes: string | null;
   created_at: string;
   created_by: string | null;
@@ -76,6 +78,8 @@ export type TransactionForm = {
   plannedDate: string;
   settledAt: string;
   notes: string;
+  isCreditCard: boolean;
+  creditCardBillDate: string;
 };
 
 export type UserProfileRow = {

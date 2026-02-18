@@ -1,5 +1,5 @@
-import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { X, Plus, Minus, Upload } from "lucide-react";
+import { ChangeEvent, memo, useEffect, useRef, useState } from "react";
+import { X, Plus, Minus, Upload, CreditCard } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { Spinner } from "../../components/LoadingState";
 import { CategoryCombobox } from "../../components/CategoryCombobox";
@@ -35,6 +35,9 @@ type ImportHookReturn = {
   importCancelled: number;
   importCompleted: boolean;
   importSummary: { imported: number; duplicates: number; errors: number; cancelled: number };
+  cardBillDate: string;
+  setCardBillDate: (v: string) => void;
+  isCardStatement: boolean;
   closeModal: () => void;
   previewFile: (file: File | null) => void;
   changeRowCategory: (rowIndex: number, dedupeKey: string, categoryId: string) => void;
@@ -56,10 +59,79 @@ type ImportModalProps = {
   formatBRL: (value: number) => string;
 };
 
+type RowData = ImportHookReturn["importPreviewRows"][0];
+
+const ImportPreviewRow = memo(function ImportPreviewRow({
+  row,
+  categories,
+  groups,
+  onChangeCategory,
+  onChangeStatus,
+  formatBRL,
+  submitting,
+}: {
+  row: RowData;
+  categories: CategoryRow[];
+  groups: CategoryGroupRow[];
+  onChangeCategory: (rowIndex: number, dedupeKey: string, categoryId: string) => void;
+  onChangeStatus: (rowIndex: number, dedupeKey: string, newStatus: ImportRowStatus) => void;
+  formatBRL: (value: number) => string;
+  submitting: boolean;
+}) {
+  const formatDateBr = (value: string | null) => {
+    if (!value) return "-";
+    try { return format(parseISO(value), "dd/MM/yyyy"); }
+    catch { return value; }
+  };
+
+  return (
+    <tr data-status={row.status}>
+      <td>{row.rowIndex}</td>
+      <td title={row.errorReason ?? ""}>{row.description}</td>
+      <td>{formatDateBr(row.occurrenceDate)}</td>
+      <td><span className={`pill ${row.type}`} title={row.type === "transfer" ? (row.errorReason ?? "") : ""}>{row.type === "transfer" ? "transferencia" : row.type}</span></td>
+      <td>
+        <CategoryCombobox
+          categories={categories}
+          groups={groups}
+          value={row.categoryId}
+          onChange={(id) => onChangeCategory(row.rowIndex, row.dedupeKey, id)}
+          transactionType={row.type}
+          disabled={row.status === 'erro' || submitting}
+        />
+      </td>
+      <td className="amount">{formatBRL(row.amount)}</td>
+      <td>
+        {row.status === 'erro' || row.status === 'sem_categoria' ? (
+          <span className={`pill status ${row.status === 'erro' ? 'cancelled' : 'planned'}`}>
+            {row.status === 'erro' ? 'erro' : 'sem categoria'}
+          </span>
+        ) : (
+          <select
+            value={row.status}
+            onChange={(e) => onChangeStatus(row.rowIndex, row.dedupeKey, e.target.value as ImportRowStatus)}
+            disabled={submitting}
+          >
+            <option value="ok">ok</option>
+            <option value="duplicada">duplicada</option>
+            <option value="cancelada">cancelada</option>
+          </select>
+        )}
+      </td>
+    </tr>
+  );
+}, (prev, next) =>
+  prev.row === next.row &&
+  prev.submitting === next.submitting &&
+  prev.categories === next.categories &&
+  prev.groups === next.groups
+);
+
 export function ImportModal({ imp, categories, groups, canWrite, monthClosed, formatBRL }: ImportModalProps) {
   const dedupeRate = imp.importTotal > 0 ? Math.round((imp.importDuplicates / imp.importTotal) * 10000) / 100 : 0;
   const [quickCategoryOpen, setQuickCategoryOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [cardDateTouched, setCardDateTouched] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const dropDisabled = !canWrite || monthClosed || imp.importParsing || imp.importSubmitting;
@@ -109,13 +181,6 @@ export function ImportModal({ imp, categories, groups, canWrite, monthClosed, fo
     }
     imp.previewFile(file);
   };
-
-  const formatDateBr = (value: string | null) => {
-    if (!value) return "-";
-    try { return format(parseISO(value), "dd/MM/yyyy"); }
-    catch { return value; }
-  };
-
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={imp.closeModal}>
@@ -175,6 +240,28 @@ export function ImportModal({ imp, categories, groups, canWrite, monthClosed, fo
               </div>
 
               {imp.importFileName ? <small>Arquivo: {imp.importFileName}</small> : null}
+
+              {imp.isCardStatement && imp.importFileName ? (
+                <div className="card-bill-date-field">
+                  <label className="input-label">
+                    <CreditCard size={14} />
+                    Data de pagamento da fatura
+                    <input
+                      type="date"
+                      value={imp.cardBillDate}
+                      onChange={(e) => { imp.setCardBillDate(e.target.value); setCardDateTouched(true); }}
+                      style={cardDateTouched && !imp.cardBillDate ? { borderColor: "var(--danger)" } : undefined}
+                      disabled={imp.importSubmitting}
+                    />
+                  </label>
+                  {imp.cardBillDate ? (
+                    <small style={{ color: "var(--accent)" }}>
+                      Lancamentos serao alocados em {format(parseISO(imp.cardBillDate), "MM/yyyy")} (periodo da data de pagamento)
+                    </small>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div aria-live="polite">
                 {imp.importModalFeedback ? <p className="feedback">{imp.importModalFeedback}</p> : null}
               </div>
@@ -216,6 +303,7 @@ export function ImportModal({ imp, categories, groups, canWrite, monthClosed, fo
                         <option value="income">income</option>
                         <option value="expense">expense</option>
                         <option value="investment">investment</option>
+                        <option value="transfer">transferencia</option>
                       </select>
                       <button
                         type="button"
@@ -249,40 +337,16 @@ export function ImportModal({ imp, categories, groups, canWrite, monthClosed, fo
                     </thead>
                     <tbody>
                       {imp.importPreviewRows.slice(0, 80).map((row) => (
-                          <tr key={`${row.rowIndex}-${row.dedupeKey}`} data-status={row.status}>
-                            <td>{row.rowIndex}</td>
-                            <td title={row.errorReason ?? ""}>{row.description}</td>
-                            <td>{formatDateBr(row.occurrenceDate)}</td>
-                            <td><span className={`pill ${row.type}`}>{row.type}</span></td>
-                            <td>
-                              <CategoryCombobox
-                                categories={categories}
-                                groups={groups}
-                                value={row.categoryId}
-                                onChange={(id) => imp.changeRowCategory(row.rowIndex, row.dedupeKey, id)}
-                                transactionType={row.type}
-                                disabled={row.status === 'erro' || imp.importSubmitting}
-                              />
-                            </td>
-                            <td className="amount">{formatBRL(row.amount)}</td>
-                            <td>
-                              {row.status === 'erro' || row.status === 'sem_categoria' ? (
-                                <span className={`pill status ${row.status === 'erro' ? 'cancelled' : 'planned'}`}>
-                                  {row.status === 'erro' ? 'erro' : 'sem categoria'}
-                                </span>
-                              ) : (
-                                <select
-                                  value={row.status}
-                                  onChange={(e) => imp.changeRowStatus(row.rowIndex, row.dedupeKey, e.target.value as ImportRowStatus)}
-                                  disabled={imp.importSubmitting}
-                                >
-                                  <option value="ok">ok</option>
-                                  <option value="duplicada">duplicada</option>
-                                  <option value="cancelada">cancelada</option>
-                                </select>
-                              )}
-                            </td>
-                          </tr>
+                        <ImportPreviewRow
+                          key={`${row.rowIndex}-${row.dedupeKey}`}
+                          row={row}
+                          categories={categories}
+                          groups={groups}
+                          onChangeCategory={imp.changeRowCategory}
+                          onChangeStatus={imp.changeRowStatus}
+                          formatBRL={formatBRL}
+                          submitting={imp.importSubmitting}
+                        />
                       ))}
                     </tbody>
                   </table>

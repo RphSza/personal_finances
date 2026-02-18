@@ -57,7 +57,7 @@ export function useCreateGroup() {
         .insert({ workspace_id: workspaceId!, name: input.name.trim(), code, sort_order: input.sortOrder });
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.categoryGroups(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.categoryGroups(workspaceId!) }); },
   });
 }
 
@@ -72,7 +72,7 @@ export function useUpdateGroup() {
       const { error } = await supabase!.from("groups").update(payload).eq("id", input.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.categoryGroups(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.categoryGroups(workspaceId!) }); },
   });
 }
 
@@ -88,7 +88,7 @@ export function useDeleteGroup() {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.categoryGroups(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.categoryGroups(workspaceId!) }); },
   });
 }
 
@@ -120,7 +120,7 @@ export function useCreateCategory() {
       if (error) throw error;
       return data as CategoryRow;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.categories(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.categories(workspaceId!) }); },
   });
 }
 
@@ -148,7 +148,7 @@ export function useUpdateCategory() {
       const { error } = await supabase!.from("categories").update(payload).eq("id", input.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.categories(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.categories(workspaceId!) }); },
   });
 }
 
@@ -164,6 +164,6 @@ export function useDeleteCategory() {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.categories(workspaceId!) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.categories(workspaceId!) }); },
   });
 }

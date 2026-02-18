@@ -194,6 +194,7 @@ export function SettingsPage({
                 <option value="income">income</option>
                 <option value="expense">expense</option>
                 <option value="investment">investment</option>
+                <option value="transfer">transferencia</option>
               </select>
               <label className="checkbox">
                 <input type="checkbox" checked={categoryRecurring} onChange={(e) => setCategoryRecurring(e.target.checked)} disabled={!isAdmin || createCategory.isPending} />
@@ -220,6 +221,7 @@ export function SettingsPage({
                         <option value="income">income</option>
                         <option value="expense">expense</option>
                         <option value="investment">investment</option>
+                        <option value="transfer">transferencia</option>
                       </select>
                     </div>
                     <label className="checkbox">

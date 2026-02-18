@@ -54,33 +54,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsGlobalAdmin(profile?.role === "internal" && profile?.active !== false);
   }, []);
 
-  const handleUser = useCallback(
-    async (id: string | null, userEmail: string | null) => {
-      setUserId(id);
-      setEmail(userEmail);
-      if (id) {
-        await ensureProfile(id, userEmail);
-        await checkGlobalAdmin(id);
-      } else {
-        setIsGlobalAdmin(false);
-      }
-    },
-    [ensureProfile, checkGlobalAdmin]
-  );
-
+  // Listen for auth state changes — MUST NOT make Supabase requests inside this
+  // callback, as Supabase's _notifyAllSubscribers awaits the callback while
+  // holding initializePromise unresolved. Any getSession() call (which every
+  // PostgREST request triggers internally) would await initializePromise,
+  // creating a circular Promise deadlock that hangs the app on refresh.
   useEffect(() => {
     if (!supabase) return;
-    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+
+    // Safety: if auth doesn't resolve in 10s, mark ready with no user (→ login screen)
+    const fallbackTimeout = setTimeout(() => {
+      setSessionReady((prev) => {
+        if (!prev) console.warn("[auth] session check timed out — redirecting to login");
+        return true;
+      });
+    }, 10_000);
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      clearTimeout(fallbackTimeout);
       const user = session?.user ?? null;
-      try {
-        await handleUser(user?.id ?? null, user?.email ?? null);
-      } catch (err) {
-        console.error("[auth] onAuthStateChange failed:", err);
-      }
+
+      setUserId(user?.id ?? null);
+      setEmail(user?.email ?? null);
       setSessionReady(true);
+
+      if (!user) {
+        setIsGlobalAdmin(false);
+      }
     });
-    return () => data.subscription.unsubscribe();
-  }, [handleUser]);
+
+    return () => {
+      clearTimeout(fallbackTimeout);
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Profile checks run in a separate effect, triggered by userId changes.
+  // This avoids the initializePromise deadlock described above.
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await ensureProfile(userId, email);
+        if (!cancelled) await checkGlobalAdmin(userId);
+      } catch (err) {
+        console.error("[auth] profile check failed:", err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [userId, email, ensureProfile, checkGlobalAdmin]);
 
   const signOut = useCallback(() => void supabase?.auth.signOut(), []);
 

@@ -6,6 +6,29 @@ import { useWorkspace } from "../contexts/WorkspaceContext";
 import { parseMoney, toPostgrestCode } from "../utils/formatting";
 import type { TransactionRow, TransactionForm, TransactionType, FiscalPeriodRow } from "../types";
 
+export async function ensurePeriodForDate(wsId: string, date: string): Promise<{ periodId: string; created: boolean; closed: boolean }> {
+  if (!supabase) throw new Error("Supabase not available");
+  const d = parseISO(date);
+  const periodStart = format(d, "yyyy-MM-01");
+  const { data: existing, error: fetchError } = await supabase
+    .from("fiscal_periods")
+    .select("id, closed_at")
+    .eq("workspace_id", wsId)
+    .eq("period_start", periodStart)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (existing) {
+    return { periodId: existing.id, created: false, closed: !!existing.closed_at };
+  }
+  const { data: created, error: createError } = await supabase
+    .from("fiscal_periods")
+    .insert({ workspace_id: wsId, period_start: periodStart })
+    .select("id")
+    .single();
+  if (createError) throw createError;
+  return { periodId: created.id, created: true, closed: false };
+}
+
 const defaultForm: TransactionForm = {
   description: "",
   amount: "",
@@ -16,6 +39,8 @@ const defaultForm: TransactionForm = {
   plannedDate: "",
   settledAt: "",
   notes: "",
+  isCreditCard: false,
+  creditCardBillDate: "",
 };
 
 export { defaultForm as defaultTransactionForm };
@@ -29,7 +54,7 @@ export function useTransactions(period: FiscalPeriodRow | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase!
         .from("transactions")
-        .select("id, period_id, category_id, description, amount, type, status, is_recurring, planned_date, settled_at, notes, created_at, created_by")
+        .select("id, period_id, category_id, description, amount, type, status, is_recurring, planned_date, settled_at, is_credit_card, credit_card_bill_date, notes, created_at, created_by")
         .eq("workspace_id", workspaceId!)
         .eq("period_id", period!.id)
         .order("created_at");
@@ -118,9 +143,18 @@ export function useSaveTransaction() {
     }) => {
       const amount = parseMoney(input.form.amount);
       if (!input.form.description.trim() || !input.form.categoryId || Number.isNaN(amount)) return;
+
+      // Resolve period for credit card entries based on bill date
+      let resolvedPeriodId = input.periodId;
+      if (input.form.isCreditCard && input.form.creditCardBillDate) {
+        const resolved = await ensurePeriodForDate(workspaceId!, input.form.creditCardBillDate);
+        if (resolved.closed) throw new Error("O periodo da fatura esta fechado. Reabra-o antes de salvar.");
+        resolvedPeriodId = resolved.periodId;
+      }
+
       const payload = {
         workspace_id: workspaceId!,
-        period_id: input.periodId,
+        period_id: resolvedPeriodId,
         category_id: input.form.categoryId,
         description: input.form.description.trim(),
         amount,
@@ -129,6 +163,8 @@ export function useSaveTransaction() {
         is_recurring: input.form.isRecurring,
         planned_date: input.form.plannedDate || null,
         settled_at: input.form.status === "settled" ? input.form.settledAt || format(new Date(), "yyyy-MM-dd") : null,
+        is_credit_card: input.form.isCreditCard,
+        credit_card_bill_date: input.form.isCreditCard ? input.form.creditCardBillDate || null : null,
         notes: input.form.notes.trim() || null,
       };
       const { error } = input.editingId
@@ -146,7 +182,7 @@ export function useSaveTransaction() {
         });
       }
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
 
@@ -201,7 +237,7 @@ export function useToggleTransactionStatus() {
         .eq("id", entry.id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
 
@@ -218,6 +254,6 @@ export function useDeleteTransaction() {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => { qc.invalidateQueries(); },
   });
 }
