@@ -2,7 +2,7 @@
 
 **Feature Branch**: `20260217-import-finishing`
 **Created**: 2026-02-17
-**Status**: Draft
+**Status**: Implemented
 **Sprint**: S3 (continuacao)
 **Input**: Research consolidada em `research/importacao-csv-ofx-research.md`, consideracoes do usuario e benchmarks de mercado (YNAB, Monarch Money, Lunch Money, Firefly III, Wave Apps).
 
@@ -466,3 +466,26 @@ Os seguintes itens da pesquisa ficam explicitamente fora desta spec:
 | Edicao inline de descricao/data | Nice-to-have, nao prioritario | Research P2 #18 |
 | Manual column mapping | Fallback raro, auto-detect funciona para maioria | Research P2 #19 |
 | Mobile card view | Responsividade basica mantida, card view e evolucao | Research P2 #20 |
+
+---
+
+## Post-Implementation Notes
+
+### Bug Fix: Spinner infinito ao confirmar importacao (2026-02-18)
+
+**Problema**: Ao clicar "Importar (N)", o spinner ficava em "Importando..." indefinidamente sem parar, mesmo em caso de erro. O console mostrava 5x erros 404 do Supabase.
+
+**Causa raiz**: Duas falhas no `confirmMutation` de `src/hooks/useImport.ts`:
+
+1. **Sem timeout de seguranca** — O `fetch` nativo do browser nao possui timeout. Se qualquer chamada Supabase (insert em `import_jobs`, `import_job_rows` ou `transactions`) travasse no nivel de rede (CORS preflight, servidor sem resposta, conexao perdida), o `await` nunca resolvia, o bloco `finally` nunca executava, e `setImportSubmitting(false)` nunca era chamado.
+
+2. **Mensagem de erro opaca** — O catch block usava `error instanceof Error` para extrair a mensagem, mas `PostgrestError` do Supabase nao extende `Error`. O resultado era sempre a mensagem generica "Falha ao confirmar importacao" sem nenhum detalhe sobre o que falhou. Nenhum `console.error` era emitido.
+
+**Correcao** (commit `56ffeb0`):
+
+- Adicionado `setTimeout` de 60s como safety net: se a mutacao nao completar em 60 segundos, forca `setImportSubmitting(false)` e mostra mensagem de timeout
+- Extraido `message` de objetos que nao sao `Error` (como `PostgrestError`) via duck-typing
+- Adicionado `console.error("[useImport] confirmImport failed:", error)` para diagnostico no DevTools
+- O `clearTimeout` no `finally` garante que o timer e limpo em caso de sucesso ou erro tratado
+
+**Observacao sobre os 404s no console**: As 5 linhas de `Failed to load resource: 404` apontavam para URLs com padrao `order=sort_order.asc,name.asc`, provavelmente de queries de categorias/grupos refetchadas pelo `qc.invalidateQueries()` apos algum sucesso parcial. Esses erros de background nao afetam o fluxo principal mas podem indicar um problema no Supabase (tabela sem a coluna `sort_order`, migracao nao aplicada, ou cache de schema do PostgREST desatualizado).
