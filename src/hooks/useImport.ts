@@ -85,7 +85,7 @@ export function useImport(
       let groupId = groups[0]?.id ?? "";
       if (!groupId) {
         const { data: createdGroup, error: groupError } = await supabase
-          .from("category_groups")
+          .from("groups")
           .insert({ workspace_id: workspaceId, name: "Geral", code: "GERAL", sort_order: 1 })
           .select("id")
           .single();
@@ -214,7 +214,7 @@ export function useImport(
         const code = slugify(name);
         if (!groupId) {
           const { data: createdGroup, error: groupError } = await supabase
-            .from("category_groups")
+            .from("groups")
             .insert({ workspace_id: workspaceId, name: "Geral", code: "GERAL", sort_order: 1 })
             .select("id")
             .single();

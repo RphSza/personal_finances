@@ -13,7 +13,7 @@ export function useCategoryGroups() {
     enabled: !!supabase && !!workspaceId,
     queryFn: async () => {
       const { data, error } = await supabase!
-        .from("category_groups")
+        .from("groups")
         .select("id, workspace_id, code, name, sort_order, deleted_at, created_by")
         .or(`workspace_id.is.null,workspace_id.eq.${workspaceId}`)
         .is("deleted_at", null)
@@ -53,7 +53,7 @@ export function useCreateGroup() {
     mutationFn: async (input: { name: string; code: string; sortOrder: number }) => {
       const code = (input.code.trim() || slugify(input.name)).toUpperCase();
       const { error } = await supabase!
-        .from("category_groups")
+        .from("groups")
         .insert({ workspace_id: workspaceId!, name: input.name.trim(), code, sort_order: input.sortOrder });
       if (error) throw error;
     },
@@ -69,7 +69,7 @@ export function useUpdateGroup() {
     mutationFn: async (input: { id: string; name: string; code: string }) => {
       const payload = { name: input.name.trim(), code: (input.code.trim() || slugify(input.name)).toUpperCase() };
       if (!payload.name) return;
-      const { error } = await supabase!.from("category_groups").update(payload).eq("id", input.id);
+      const { error } = await supabase!.from("groups").update(payload).eq("id", input.id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.categoryGroups(workspaceId!) }),
@@ -83,7 +83,7 @@ export function useDeleteGroup() {
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase!
-        .from("category_groups")
+        .from("groups")
         .update({ deleted_at: new Date().toISOString() })
         .eq("id", id);
       if (error) throw error;
