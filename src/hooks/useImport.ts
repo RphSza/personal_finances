@@ -261,6 +261,10 @@ export function useImport(
 
       setImportSubmitting(true);
       setImportModalFeedback("");
+      const safetyTimeout = setTimeout(() => {
+        setImportSubmitting(false);
+        setImportModalFeedback("Tempo limite excedido. Verifique sua conexao e tente novamente.");
+      }, 60_000);
       try {
         const summary = {
           total_rows: importPreviewRows.length,
@@ -334,9 +338,16 @@ export function useImport(
         setImportCompleted(true);
         qc.invalidateQueries();
         setImportModalFeedback("");
-      } catch (error) {
-        setImportModalFeedback(error instanceof Error ? error.message : "Falha ao confirmar importacao.");
+      } catch (error: unknown) {
+        const msg = error instanceof Error
+          ? error.message
+          : typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : "Falha ao confirmar importacao.";
+        console.error("[useImport] confirmImport failed:", error);
+        setImportModalFeedback(msg);
       } finally {
+        clearTimeout(safetyTimeout);
         setImportSubmitting(false);
       }
     },
