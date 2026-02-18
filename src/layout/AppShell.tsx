@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { addMonths, format, parseISO } from "date-fns";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "../contexts/AuthContext";
@@ -73,10 +73,14 @@ export function AppShell() {
   const { data: trendRows = [] } = useTrend(selectedMonth, trendWindow);
   const { data: trendStatusRows = [] } = useTrendByStatus(selectedMonth, trendWindow);
 
-  // Sync recurrences when period changes
+  // Sync recurrences when period changes (ref prevents StrictMode double-fire)
   const syncRecurrences = useSyncRecurrences();
+  const syncedPeriodRef = useRef<string | null>(null);
   useEffect(() => {
-    if (period && canWrite) syncRecurrences.mutate(period);
+    if (period && canWrite && syncedPeriodRef.current !== period.id) {
+      syncedPeriodRef.current = period.id;
+      syncRecurrences.mutate(period);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period?.id, canWrite]);
 

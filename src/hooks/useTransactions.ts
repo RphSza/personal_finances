@@ -80,9 +80,23 @@ export function useSyncRecurrences() {
       if (upsertError) {
         const code = toPostgrestCode(upsertError);
         if (code === "42703" || code === "42P10") {
-          const fallbackInserts = inserts.map(({ recurrence_materialization_key: _, ...row }) => row);
-          const { error: fallbackError } = await supabase.from("transactions").insert(fallbackInserts);
-          if (fallbackError) throw fallbackError;
+          // Column doesn't exist — dedup manually before inserting
+          const { data: existing } = await supabase
+            .from("transactions")
+            .select("description, type")
+            .eq("workspace_id", workspaceId)
+            .eq("period_id", period.id)
+            .eq("is_recurring", true);
+          const existingSet = new Set(
+            (existing ?? []).map((e: { description: string; type: string }) => `${e.description}::${e.type}`)
+          );
+          const fallbackInserts = inserts
+            .map(({ recurrence_materialization_key: _, ...row }) => row)
+            .filter((row) => !existingSet.has(`${row.description}::${row.type}`));
+          if (fallbackInserts.length > 0) {
+            const { error: fallbackError } = await supabase.from("transactions").insert(fallbackInserts);
+            if (fallbackError) throw fallbackError;
+          }
         } else {
           throw upsertError;
         }
